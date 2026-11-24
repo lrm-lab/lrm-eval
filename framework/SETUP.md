@@ -97,3 +97,31 @@ python3 -B report.py "$EVAL_OUT/demo-codex" --check-smoke --format markdown
 ```
 
 运行成功后，`batch-report.json` 给出有效得分和覆盖率，`episodes.jsonl` 索引每次 trial，`trials/<UUID>/trajectory.json` 保留可用 ATIF。`report.py --check-smoke` 同时检查评分和配对的工具调用。`failure.raw_log` 指向执行机原始日志，`harbor view <原始作业目录>` 可浏览 Harbor 原生作业。
+
+
+## 网关采集短测
+
+`--gateway-capture` 启动本机 OpenEnv 采集代理。Harbor 启动原生 harness，代理接收它的模型请求，再转发给 `OPENAI_BASE_URL`。上游凭据由 `OPENAI_API_KEY` 注入，沙箱使用独立采集会话。当前入口使用 OpenEnv 0.14.0 和 Harbor 0.26.0。
+
+在具备 Docker 权限的执行账号中准备 Python 3.12+ 环境。若已有安装这些包的环境，可直接运行评测入口。
+
+```bash
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install 'openenv==0.14.0' 'harbor==0.26.0' 'litellm==1.110.1'
+```
+
+配置 `OPENAI_BASE_URL`、`OPENAI_API_KEY`，以及执行机访问上游所需的代理和信任证书。将 `--capture-host` 设为运行机上 Docker 容器可直连的 IPv4 地址，示例使用 Linux 的 `172.17.0.1`。先按项目首页生成一个可在 Docker 中运行的日志短题。任务镜像可以预装已固定版本的 harness，或让 Harbor 按其默认安装流程准备。
+
+```bash
+python -B run.py demo-v1-train --config ../datasets/demo-v1/harbor.toml \
+  --task log-rollup-train-001 --agent opencode --agent-version 1.19.3 \
+  --model vllm/Qwen3_8-27B --gateway-capture --capture-host 172.17.0.1 \
+  --batch demo-gateway --output ../harbor-runs
+
+python -B report.py ../harbor-runs/demo-gateway --check-gateway-capture --format markdown
+```
+
+输出的 `episodes.jsonl` 用同一 `trial_id` 关联 `result.json`、可用 ATIF `trajectory.json` 和 `model-gateway.json`。网关文件存有模型请求窗口、工具定义、响应、采样参数和分支标记。真实工具往返通过匹配模型调用 ID 与后续请求中的工具返回来验证。选择适合存放完整请求内容的输出目录。
+
+该模式使用 OpenEnv 的协议及 harness 配置，支持 `--task`、`--all`、`--attempts`、`--concurrent`。可用 `--pause-after` 在连续出现同类故障时暂停派发。原生 Harbor 批次的 `--resume`、Agent 和 verifier 环境覆盖及绑定文件参数仍在原入口使用。网关评测产物标记为 `purpose=eval`。在线训练使用 OpenEnv 训练采集、vLLM 的实际 token 和 logprob，再由 TRL 消费经过验证的 mask。 [OpenEnv Harbor 采集](https://github.com/openenv/OpenEnv/blob/main/docs/source/environments/harbor.md#the-intercept)

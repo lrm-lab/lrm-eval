@@ -174,6 +174,11 @@ def has_tool_execution(trajectory):
     return False
 
 
+
+def receipt_matches(row, receipt):
+    rewards = receipt.get("verifier_rewards") or {}
+    return receipt.get("id") == row["trial_id"] and rewards.get(receipt.get("reward_key", "reward")) == row["reward"]
+
 def check_smoke(root, rows, summary, minimum_reward):
     if not finite(minimum_reward):
         raise ValueError("The smoke minimum reward must be finite")
@@ -188,8 +193,7 @@ def check_smoke(root, rows, summary, minimum_reward):
         try:
             receipt = load_json(artifact(root, row.get("result")))
             trajectory = load_json(artifact(root, row.get("trajectory")))
-            rewards = receipt.get("verifier_rewards") or {}
-            if receipt.get("id") != row["trial_id"] or rewards.get(receipt.get("reward_key", "reward")) != row["reward"]:
+            if not receipt_matches(row, receipt):
                 reasons["receipt_mismatch"] += 1
             elif not has_tool_execution(trajectory):
                 reasons["no_matching_tool_observation"] += 1
@@ -198,6 +202,29 @@ def check_smoke(root, rows, summary, minimum_reward):
     return {"passed": bool(rows) and not reasons, "minimum_reward": minimum_reward,
             "reasons": dict(sorted(reasons.items()))}
 
+
+
+def check_gateway_capture(root, rows, summary):
+    from gateway_capture import capture_document, has_tool_round_trip
+
+    reasons = Counter()
+    if summary["totals"]["planned"] != len(rows):
+        reasons["incomplete_or_unknown_plan"] += 1
+    for row in rows:
+        if row.get("gateway_status") != "captured" or row["status"] != "scored" or not finite(row.get("reward")):
+            reasons["no_valid_scored_gateway_capture"] += 1
+            continue
+        try:
+            receipt = load_json(artifact(root, row.get("result")))
+            trace = artifact(root, row.get("gateway_trace"))
+            capture, _ = capture_document(trace, row["trial_id"])
+            if not receipt_matches(row, receipt) or not capture["validated"]:
+                reasons["receipt_mismatch"] += 1
+            elif not has_tool_round_trip(capture):
+                reasons["no_tool_round_trip_in_model_requests"] += 1
+        except (OSError, ValueError, TypeError, AttributeError):
+            reasons["missing_or_invalid_artifact"] += 1
+    return {"passed": bool(rows) and not reasons, "reasons": dict(sorted(reasons.items()))}
 
 def check_training_captures(root, rows, summary):
     from training_capture import load_training_capture
@@ -264,7 +291,8 @@ def as_markdown(report):
     if official := report["official"]:
         lines.extend(["", f"官方结果 **{label(official['metric'])}** {official['score']}，官方分母 "
                            f"{official['denominator']}。来源 {label(official['source'])}"])
-    for name, title in (("smoke_check", "冒烟检查"), ("training_capture_check", "训练采集检查")):
+    for name, title in (("smoke_check", "冒烟检查"), ("gateway_capture_check", "网关采集检查"),
+                        ("training_capture_check", "训练采集检查")):
         if verdict := report.get(name):
             details = ", ".join(f"{label(k)} {v}" for k, v in verdict["reasons"].items())
             lines.extend(["", f"{title} **{'通过' if verdict['passed'] else '待验收'}** {details}".rstrip()])
@@ -280,6 +308,8 @@ def main():
     parser.add_argument("--official-result", type=Path, help="Result from the benchmark's official scorer")
     parser.add_argument("--check-smoke", action="store_true", help="Require a scored result and actual tool observation")
     parser.add_argument("--min-smoke-reward", type=float, default=1)
+    parser.add_argument("--check-gateway-capture", action="store_true",
+                        help="Require trial-bound model windows, reward and a tool round trip")
     parser.add_argument("--check-training-captures", action="store_true", help="Require verified, scored token captures")
     parser.add_argument("--output", type=Path, help="Write JSON to a file")
     parser.add_argument("--format", choices=("json", "markdown"), default="json")
@@ -293,6 +323,9 @@ def main():
         if args.check_smoke:
             result["smoke_check"] = check_smoke(root, rows, result, args.min_smoke_reward)
             tests.append(result["smoke_check"]["passed"])
+        if args.check_gateway_capture:
+            result["gateway_capture_check"] = check_gateway_capture(root, rows, result)
+            tests.append(result["gateway_capture_check"]["passed"])
         if args.check_training_captures:
             result["training_capture_check"] = check_training_captures(root, rows, result)
             tests.append(result["training_capture_check"]["passed"])

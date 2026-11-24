@@ -20,6 +20,7 @@ from uuid import UUID
 
 import batch_guard
 import direct
+import gateway_capture
 import report as batch_report
 from training_capture import load_training_capture
 
@@ -118,6 +119,18 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                     atomic_write(trial / "trajectory.json", data)
                 else:
                     trace_status = "invalid"
+            gateway_path = None
+            gateway_status = "not_captured"
+            trace_file = receipt.parent / gateway_capture.TRACE_NAME
+            if trace_file.is_file():
+                try:
+                    capture, data = gateway_capture.capture_document(trace_file, trial_id)
+                except (OSError, ValueError, TypeError, AttributeError):
+                    gateway_status = "invalid"
+                else:
+                    gateway_status = ("captured" if capture["validated"] else "unvalidated") if capture["turns"] else "empty"
+                    gateway_path = str(relative / gateway_capture.TRACE_NAME)
+                    atomic_write(trial / gateway_capture.TRACE_NAME, data)
             evidence = {
                 "id": trial_id, "task_name": result["task_name"], "task_checksum": result.get("task_checksum"),
                 "agent_info": agent_info, "verifier_rewards": rewards, "reward_key": receipt_reward_key,
@@ -153,6 +166,7 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                 "usage": usage,
                 "result": str(relative / "result.json"), "trajectory": trace_path,
                 "trajectory_status": trace_status, "training_trace": training_path, "training_status": training_status,
+                "gateway_trace": gateway_path, "gateway_status": gateway_status,
             })
         index = output / "episodes.jsonl"
         if records or (resumed and index.is_file()):
@@ -426,6 +440,64 @@ def execute_harbor(args, cmd, dataset, output, metadata, cwd, env):
         return returncode or (0 if count else 1)
 
 
+
+def execute_gateway(args, dataset, output, metadata):
+    _, separator, model = args.model.partition("/")
+    if not separator:
+        model = args.model
+    tasks = ([dataset / name for name in dict.fromkeys(args.task)] if args.task
+             else sorted(path.parent for path in dataset.glob("*/task.toml")))
+    if not tasks:
+        raise ValueError(f"No Harbor tasks found in {dataset}")
+    for task in tasks:
+        if not (task / "task.toml").is_file() or not task.resolve().is_relative_to(dataset):
+            raise ValueError(f"Task is missing from dataset: {task.name}")
+    if args.plan:
+        print(json.dumps({"runner": "openenv-gateway", "tasks": [p.name for p in tasks],
+                          "model": model, "harness": args.agent, "attempts": args.attempts,
+                          "concurrent": args.concurrent, "capture_host": args.capture_host}))
+        return 0
+    if not args.base_url:
+        raise ValueError("Set OPENAI_BASE_URL or --base-url for gateway capture")
+    key = os.getenv("OPENAI_API_KEY")
+    job = args.work / "jobs" / args.batch
+    if output.exists() or job.exists():
+        raise ValueError("Gateway batch already exists. Use a fresh name")
+    task_attempts = Counter()
+    for task in tasks:
+        definition = tomllib.loads((task / "task.toml").read_text()).get("task") or {}
+        task_attempts[definition.get("name") or task.name] += args.attempts
+    planned = sum(task_attempts.values())
+    job.mkdir(parents=True, exist_ok=False)
+    publication_dir(output.parent)
+    output.mkdir()
+    output.chmod(0o755)
+    state = {"status": "running", "source": {"host": args.source_host, "path": str(job)},
+             "planned": planned, "task_attempts": task_attempts}
+
+    def write_document(path, document):
+        atomic_write(path, (json.dumps(document, ensure_ascii=False, allow_nan=False) + "\n").encode())
+
+    status = output / "batch-status.json"
+    write_document(status, state)
+    counts = Counter()
+    try:
+        counts = gateway_capture.run_capture(args, tasks, job, args.base_url, model, key, write_document)
+    except KeyboardInterrupt:
+        state["status"] = "interrupted"
+        raise
+    finally:
+        count = publish(job, output, metadata, source_host=args.source_host, reward_key=args.reward_key)
+        success = count == planned and counts["captured"] == planned
+        if state["status"] == "running":
+            state["status"] = "paused" if counts["paused"] else "finished" if success else "failed"
+        state["completed"] = count
+        write_document(status, state)
+        write_batch_report(output)
+    print(f"Published {count} trial(s) to {output}")
+    return batch_guard.PAUSED_EXIT if counts["paused"] else int(not success)
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -458,6 +530,10 @@ def main():
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--bundle", type=Path, help="Local copy of the handoff bundle")
     parser.add_argument("--training-dir", type=Path, help="Trial-bound captures produced by the OpenEnv collector")
+    parser.add_argument("--gateway-capture", action="store_true",
+                        help="Run Harbor via the OpenEnv proxy and save actual model request windows")
+    parser.add_argument("--capture-host", default="172.17.0.1",
+                        help="Docker-reachable local IPv4 address on which the capture gateway listens")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--export-job", type=Path, help="Import completed trial receipts from a local job")
@@ -543,9 +619,9 @@ def main():
         bundled_bin = bundle / "install" / "runner-env" / "bin"
         if os.access(bundled_bin / "harbor", os.X_OK):
             os.environ.setdefault("PI_BENCH_RUNNER_BIN", str(bundled_bin))
-    if not args.base_url and (runner == "direct" or args.agent in ("pi", "openclaw", "claude-code")
+    if not args.base_url and (args.gateway_capture or runner == "direct" or args.agent in ("pi", "openclaw", "claude-code")
                               or args.api_format in ("openai_chat_completions", "openai_responses")):
-        variable = "ANTHROPIC_BASE_URL" if args.agent == "claude-code" else "OPENAI_BASE_URL"
+        variable = "ANTHROPIC_BASE_URL" if args.agent == "claude-code" and not args.gateway_capture else "OPENAI_BASE_URL"
         args.base_url = os.getenv(variable)
     if args.agent == "claude-code":
         args.agent_version = args.agent_version or config.get("claude_code_version")
@@ -555,7 +631,7 @@ def main():
         args.agent_version = args.agent_version or config.get("opencode_version")
         target = "/usr/local/bin/opencode"
         custom_binary = any(mount.get("target") == target for mount in args.mounts)
-        if bundle and not custom_binary and args.agent_version and re.fullmatch(r"\d+\.\d+\.\d+", args.agent_version):
+        if not args.gateway_capture and bundle and not custom_binary and args.agent_version and re.fullmatch(r"\d+\.\d+\.\d+", args.agent_version):
             binary = bundle / "runtime" / f"opencode-{args.agent_version}" / "opencode"
             if os.access(binary, os.X_OK):
                 args.mounts.append({"type": "bind", "source": str(binary), "target": target, "read_only": True})
@@ -565,6 +641,19 @@ def main():
         url = urlsplit(args.base_url)
         if url.scheme not in ("http", "https") or not url.hostname or url.username or url.password or url.query or url.fragment:
             parser.error("Use an HTTP(S) gateway URL without credentials, query parameters, or fragments")
+    if args.gateway_capture:
+        if (runner != "harbor" or args.resume or args.agent in ("oracle", "nop")
+                or args.agent_env or args.agent_kwarg or args.verifier_env or args.mounts
+                or args.api_format or args.agent_ca_bundle or args.training_dir):
+            parser.error("Gateway capture uses OpenEnv harness settings. It requires a new Harbor model batch "
+                         "and does not take native agent, verifier, or mount overrides")
+        try:
+            if suite.get("prepare") == "wildclaw-crlf" and not args.plan:
+                dataset = prepare_wildclaw(dataset, bundle, args.work, args.suite)
+            return execute_gateway(args, dataset, output, metadata)
+        except (OSError, ValueError, RuntimeError) as error:
+            parser.error(str(error))
+
     if runner == "direct":
         try:
             cases = direct.load_tasks(dataset, args.task)

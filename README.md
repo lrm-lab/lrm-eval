@@ -62,6 +62,10 @@ python3 -B run.py demo-v1-train --config ../datasets/demo-v1/harbor.toml \
 python3 -B report.py ../harbor-runs/demo-smoke --check-smoke --format markdown
 ```
 
+## 网关采集
+
+给 Harbor 评测加 `--gateway-capture`，OpenEnv 会用同一个代理采集原生 harness 的模型交互。`episodes.jsonl` 将每次试验的网关请求窗口、评分和可用 ATIF 关联到同一个 trial。用 `report.py --check-gateway-capture` 核对评分和实际工具往返。 [安装和短测命令](framework/SETUP.md#网关采集短测)
+
 ## 计分和运行记录
 
 每批有 `episodes.jsonl`、`batch-report.json`、`batch-status.json` 及按 trial UUID 索引的评分和可用 ATIF。报告包含计划、已结束、有效评分、有效样本均分、通过数、覆盖率和故障分类。计划 8 次、5 次有效且全通过时，报告分别显示 **5/5 通过** 和 **5/8 覆盖率**。历史批次缺少计划时可传 `--planned`，逐题补分母可用 `--attempts-per-task`。
