@@ -1,8 +1,8 @@
 # LRM Eval
 
-LRM Eval 是一套可扩展的 Agent Infra。用同一批任务对比 harness、模型和模型网关，记录评分与实际模型交互。合成任务通过验收后可进入在线训练，更新后的模型再用留出题和基准题评测。
+LRM Eval 是一套可扩展的 Agent Infra。**合成数据方法、Agent Harness、模型与网关、训练后端**均可按需扩展。平台通过 Harbor、Direct 和 VLMEvalKit 三种评测入口执行任务，统一记录评分、轨迹与批次报告；可用不同 Harness、模型和网关进行对比。合成任务通过验收后可进入在线训练，更新后的模型再用留出题和基准题评测。
 
-![LRM Eval Agent Infra，涵盖数据集、数据合成、harness、模型、模型网关和训练](assets/lrm-eval-architecture.svg)
+![LRM Eval 可扩展架构：合成数据、Agent Harness、模型与网关、训练后端，以及三种评测执行路径与反馈闭环](assets/lrm-eval-architecture.svg)
 
 | 模块 | 接入方式 |
 |---|---|
