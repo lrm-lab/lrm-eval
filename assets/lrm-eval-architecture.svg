@@ -1,53 +1,167 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1720 820" width="1720" height="820" role="img" aria-labelledby="title desc">
-<title id="title">LRM Eval Agent Infrastructure</title>
-<desc id="desc">Datasets and synthesis supply tasks for evaluation with configurable harnesses, models and gateways. Harbor scores runs and publishes traces. OpenEnv supplies fresh rollouts for GRPO and multi-expert OPD, and updated models return to evaluation.</desc>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1800 1040" width="1800" height="1040" role="img" aria-labelledby="fig-title fig-desc">
+<title id="fig-title">LRM Eval — Extensible Agent and Model Evaluation Infrastructure</title>
+<desc id="fig-desc">Four pluggable areas: synthesis methods, agent harnesses, model gateways, and training backends. Benchmark and custom datasets feed three evaluation runners: Harbor, Direct, and VLMEvalKit. Unified evidence and traces feed a training feedback loop, with updated models evaluated on holdout and benchmark tasks.</desc>
 <defs>
- <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FCFEFF"/><stop offset="100%" stop-color="#EEF5FF"/></linearGradient>
- <linearGradient id="blue" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#193A8B"/><stop offset="100%" stop-color="#2869D8"/></linearGradient>
- <linearGradient id="teal" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#0A6F96"/><stop offset="100%" stop-color="#0B9D9B"/></linearGradient>
- <filter id="shadow" x="-15%" y="-20%" width="130%" height="145%"><feDropShadow dx="0" dy="10" stdDeviation="15" flood-color="#23417D" flood-opacity="0.11"/></filter>
- <marker id="arrow" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5.5 L1 10" fill="none" stroke="#2869D8" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.1"/></marker>
- <marker id="arrowTeal" markerWidth="11" markerHeight="11" refX="9" refY="5.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1 1 L9 5.5 L1 10" fill="none" stroke="#0D9C9C" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.1"/></marker>
- <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1" fill="#AAC9F4" opacity=".4"/></pattern>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#FFFFFF"/><stop offset="100%" stop-color="#F0F6FF"/></linearGradient>
+<linearGradient id="indigo" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#143579"/><stop offset="100%" stop-color="#276ADB"/></linearGradient>
+<linearGradient id="teal" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#0B7B8E"/><stop offset="100%" stop-color="#0DAA95"/></linearGradient>
+<filter id="shadow" x="-15%" y="-20%" width="130%" height="150%"><feDropShadow dx="0" dy="8" stdDeviation="14" flood-color="#2F5C9C" flood-opacity=".12"/></filter>
+<marker id="blueArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L10 6 L1 11" fill="none" stroke="#3979D8" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<marker id="tealArrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M1 1 L10 6 L1 11" fill="none" stroke="#0B988D" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></marker>
+<pattern id="dots" width="28" height="28" patternUnits="userSpaceOnUse"><circle cx="1.5" cy="1.5" r="1.3" fill="#BBD1F4" opacity=".36"/></pattern>
 </defs>
-<rect x="0" y="0" width="1720" height="820" rx="0" fill="url(#bg)" />
-<rect x="0" y="0" width="1720" height="820" rx="0" fill="url(#dots)" />
-<path d="M1210 0 Q1480 100 1720 15 L1720 0Z" fill="#D7E7FF" opacity=".7"/>
-<path d="M0 790 Q290 665 595 820 H0Z" fill="#D6E8FE" opacity=".7"/>
-<rect x="65" y="48" width="10" height="68" rx="4" fill="#48C3EA" />
-<text x="94" y="99" fill="#142A63" font-family="Inter,Arial,Helvetica,sans-serif" font-size="65" font-weight="800" >LRM</text>
-<text x="271" y="99" fill="#2366DA" font-family="Inter,Arial,Helvetica,sans-serif" font-size="65" font-weight="800" >Eval</text>
-<rect x="465" y="53" width="2" height="59" rx="0" fill="#CBD9EF" />
-<text x="494" y="89" fill="#3D5278" font-family="Inter,Arial,Helvetica,sans-serif" font-size="34" font-weight="600" >Agent Infrastructure</text>
-<text x="68" y="148" fill="#677C9E" font-family="Inter,Arial,Helvetica,sans-serif" font-size="22" font-weight="450" >Harnesses, models, and gateways for evaluation, data synthesis, and training</text>
-<g filter="url(#shadow)"><rect x="65" y="205" width="320" height="290" rx="24" fill="#FFFFFF" stroke="#D9E5FA" stroke-width="2"/><rect x="65" y="205" width="320" height="78" rx="22" fill="url(#blue)" /></g><rect x="83" y="223" width="42" height="42" rx="13" fill="#FFFFFF" opacity="0.18"/><text x="94" y="252" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="750" >01</text><text x="137" y="244" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="23" font-weight="760" >Datasets</text><text x="137" y="267" fill="#D8E8FF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="15" font-weight="500" >TASKS &amp; DATA SYNTHESIS</text><rect x="84" y="301" width="282" height="56" rx="13" fill="#F0F6FF" /><rect x="99" y="318" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="109" cy="328" r="4" fill="#2770E2"/><text x="135" y="336" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Harbor / custom tasks</text><rect x="84" y="368" width="282" height="56" rx="13" fill="#F6F9FE" /><rect x="99" y="385" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="109" cy="395" r="4" fill="#2770E2"/><text x="135" y="403" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Direct QA (JSONL)</text><rect x="84" y="435" width="282" height="56" rx="13" fill="#F0F6FF" /><rect x="99" y="452" width="21" height="21" rx="7" fill="#12BFA5" opacity="0.22"/><circle cx="109" cy="462" r="4" fill="#06B998"/><text x="135" y="470" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Synthetic splits</text>
-<g filter="url(#shadow)"><rect x="425" y="205" width="302" height="290" rx="24" fill="#FFFFFF" stroke="#D9E5FA" stroke-width="2"/><rect x="425" y="205" width="302" height="78" rx="22" fill="url(#blue)" /></g><rect x="443" y="223" width="42" height="42" rx="13" fill="#FFFFFF" opacity="0.18"/><text x="454" y="252" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="750" >02</text><text x="497" y="244" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="22" font-weight="760" >Models &amp; Harness</text><text x="497" y="267" fill="#D8E8FF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="15" font-weight="500" >EXECUTION CONFIG</text><rect x="444" y="301" width="264" height="56" rx="13" fill="#F0F6FF" /><rect x="459" y="318" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="469" cy="328" r="4" fill="#2770E2"/><text x="495" y="336" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Model selection</text><rect x="444" y="368" width="264" height="56" rx="13" fill="#F6F9FE" /><rect x="459" y="385" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="469" cy="395" r="4" fill="#2770E2"/><text x="495" y="403" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Harness adapters</text><rect x="444" y="435" width="264" height="56" rx="13" fill="#F0F6FF" /><rect x="459" y="452" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="469" cy="462" r="4" fill="#2770E2"/><text x="495" y="470" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Model gateways</text>
-<g filter="url(#shadow)"><rect x="767" y="205" width="505" height="290" rx="24" fill="#FFFFFF" stroke="#D9E5FA" stroke-width="2"/><rect x="767" y="205" width="505" height="78" rx="22" fill="url(#blue)" /></g><rect x="785" y="223" width="42" height="42" rx="13" fill="#FFFFFF" opacity="0.18"/><text x="796" y="252" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="750" >03</text><text x="839" y="244" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="26" font-weight="760" >Harbor Evaluation</text><text x="839" y="267" fill="#D8E8FF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="15" font-weight="500" >RUN • SCORE • TRACE</text><rect x="786" y="301" width="467" height="56" rx="13" fill="#F0F6FF" /><rect x="801" y="318" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="811" cy="328" r="4" fill="#2770E2"/><text x="837" y="336" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Job execution &amp; retries</text><rect x="786" y="368" width="467" height="56" rx="13" fill="#F6F9FE" /><rect x="801" y="385" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="811" cy="395" r="4" fill="#2770E2"/><text x="837" y="403" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Verifier scoring &amp; rewards</text><rect x="786" y="435" width="467" height="56" rx="13" fill="#F0F6FF" /><rect x="801" y="452" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="811" cy="462" r="4" fill="#2770E2"/><text x="837" y="470" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Gateway windows and ATIF</text>
-<g filter="url(#shadow)"><rect x="1312" y="205" width="343" height="290" rx="24" fill="#FFFFFF" stroke="#D9E5FA" stroke-width="2"/><rect x="1312" y="205" width="343" height="78" rx="22" fill="url(#blue)" /></g><rect x="1330" y="223" width="42" height="42" rx="13" fill="#FFFFFF" opacity="0.18"/><text x="1341" y="252" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="750" >04</text><text x="1384" y="244" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="26" font-weight="760" >Reports &amp; Traces</text><text x="1384" y="267" fill="#D8E8FF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="15" font-weight="500" >INSPECT RESULTS</text><rect x="1331" y="301" width="305" height="56" rx="13" fill="#F0F6FF" /><rect x="1346" y="318" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="1356" cy="328" r="4" fill="#2770E2"/><text x="1382" y="336" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Metrics and coverage</text><rect x="1331" y="368" width="305" height="56" rx="13" fill="#F6F9FE" /><rect x="1346" y="385" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="1356" cy="395" r="4" fill="#2770E2"/><text x="1382" y="403" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Episodes &amp; artifacts</text><rect x="1331" y="435" width="305" height="56" rx="13" fill="#F0F6FF" /><rect x="1346" y="452" width="21" height="21" rx="7" fill="#5087ED" opacity="0.22"/><circle cx="1356" cy="462" r="4" fill="#2770E2"/><text x="1382" y="470" fill="#21345B" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="650" >Harbor Viewer</text>
-<path d="M389 349 H418" stroke="#2869D8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<path d="M731 349 H760" stroke="#2869D8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<path d="M1276 349 H1305" stroke="#2869D8" stroke-width="6" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<rect x="748" y="560" width="650" height="176" rx="25" fill="#FFFFFF" stroke="#9ADDD8" stroke-width="2.5" filter="url(#shadow)"/>
-<rect x="748" y="560" width="650" height="62" rx="24" fill="url(#teal)" />
-<text x="779" y="601" fill="#FFFFFF" font-family="Inter,Arial,Helvetica,sans-serif" font-size="27" font-weight="770" >TRAINING FEEDBACK LOOP</text>
-<text x="1247" y="600" fill="#D8FFFB" font-family="Inter,Arial,Helvetica,sans-serif" font-size="20" font-weight="600" >OpenEnv</text>
-<rect x="775" y="645" width="175" height="63" rx="14" fill="#E6F8F6" />
-<text x="795" y="671" fill="#167D80" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="730" >Fresh rollouts</text>
-<text x="795" y="695" fill="#167D80" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="520" >Tokens &amp; masks</text>
-<path d="M963 677 H1001" stroke="#0D9C9C" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowTeal)"/>
-<rect x="1015" y="645" width="170" height="63" rx="14" fill="#E6F8F6" />
-<text x="1042" y="670" fill="#167D80" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="730" >GRPO / OPD</text>
-<text x="1030" y="695" fill="#167D80" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="520" >Student updates</text>
-<path d="M1197 677 H1228" stroke="#0D9C9C" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowTeal)"/>
-<rect x="1243" y="645" width="132" height="63" rx="14" fill="#DDF6E9" />
-<text x="1258" y="671" fill="#147F5A" font-family="Inter,Arial,Helvetica,sans-serif" font-size="19" font-weight="730" >Updated</text>
-<text x="1268" y="695" fill="#147F5A" font-family="Inter,Arial,Helvetica,sans-serif" font-size="18" font-weight="520" >model</text>
-<path d="M1018 500 V548" stroke="#0D9C9C" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrowTeal)"/>
-<rect x="1033" y="518" width="182" height="32" rx="15" fill="#DDF8F3" />
-<text x="1054" y="540" fill="#137F78" font-family="Inter,Arial,Helvetica,sans-serif" font-size="16" font-weight="680" >Harbor rollouts</text>
-<path d="M748 677 H578 Q560 677 560 655 V505" stroke="#2869D8" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#arrow)"/>
-<rect x="425" y="735" width="302" height="35" rx="16" fill="#E4EDFF" />
-<text x="454" y="758" fill="#2E63BA" font-family="Inter,Arial,Helvetica,sans-serif" font-size="17" font-weight="650" >Updated model → re-evaluate</text>
-<text x="68" y="784" fill="#7290B8" font-family="Inter,Arial,Helvetica,sans-serif" font-size="16" font-weight="500" >LRM Eval  •  Evaluation, reporting, synthesis, training</text>
-<text x="1590" y="784" fill="#7290B8" font-family="Inter,Arial,Helvetica,sans-serif" font-size="16" font-weight="600" >lrm-lab</text>
-</svg>
+<g font-family="Inter,Segoe UI,Arial,Helvetica,sans-serif">
+<rect x="0" y="0" width="1800" height="1040" rx="0" fill="url(#bg)" />
+<rect x="0" y="0" width="1800" height="1040" rx="0" fill="url(#dots)" />
+<path d="M1260 0 Q1500 108 1800 20 V0 Z" fill="#DCEAFE" opacity=".63"/>
+<rect x="63" y="48" width="10" height="70" rx="5" fill="#45BFE7" />
+<text x="93" y="100" font-size="68" font-weight="820" fill="#173469" >LRM</text>
+<text x="286" y="100" font-size="68" font-weight="820" fill="#2A6CDB" >Eval</text>
+<rect x="488" y="55" width="2" height="57" rx="1" fill="#CFDBEE" />
+<text x="521" y="94" font-size="37" font-weight="620" fill="#3B537A" >Extensible Agent Infrastructure</text>
+<rect x="1542" y="63" width="190" height="26" rx="13" fill="#E5F3EE" />
+<text x="1637" y="81" font-size="14" font-weight="750" fill="#168B75" text-anchor="middle" letter-spacing=".3">MODULAR BY DESIGN</text>
+<text x="65" y="150" font-size="22" font-weight="460" fill="#687D9E" >Benchmark evaluation, synthetic data, cross-harness execution, and model training in one framework</text>
+<text x="65" y="188" font-size="15" font-weight="790" fill="#5373A6" letter-spacing="2.4">FOUR PLUGGABLE EXTENSION POINTS</text>
+<rect x="65" y="207" width="399" height="158" rx="21" fill="#FFFFFF" stroke="#D6E4F9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="65" y="207" width="7" height="158" rx="4" fill="#386BD6" />
+<rect x="365" y="222" width="80" height="26" rx="13" fill="#EEF4FF" />
+<text x="405" y="240" font-size="12" font-weight="750" fill="#386BD6" text-anchor="middle" letter-spacing=".3">EXTEND</text>
+<text x="92" y="243" font-size="17" font-weight="800" fill="#386BD6" >01</text>
+<text x="92" y="279" font-size="27" font-weight="760" fill="#1C345D" >Data Synthesis</text>
+<text x="92" y="310" font-size="17" font-weight="550" fill="#456182" >Generators · Writers · Validators</text>
+<text x="92" y="341" font-size="15" font-weight="480" fill="#7A90AA" >Custom task sources &amp; checks</text>
+<rect x="488" y="207" width="399" height="158" rx="21" fill="#FFFFFF" stroke="#D6E4F9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="488" y="207" width="7" height="158" rx="4" fill="#386BD6" />
+<rect x="788" y="222" width="80" height="26" rx="13" fill="#EEF4FF" />
+<text x="828" y="240" font-size="12" font-weight="750" fill="#386BD6" text-anchor="middle" letter-spacing=".3">EXTEND</text>
+<text x="515" y="243" font-size="17" font-weight="800" fill="#386BD6" >02</text>
+<text x="515" y="279" font-size="27" font-weight="760" fill="#1C345D" >Agent Harnesses</text>
+<text x="515" y="310" font-size="17" font-weight="550" fill="#456182" >Pi · OpenClaw · Codex · more</text>
+<text x="515" y="341" font-size="15" font-weight="480" fill="#7A90AA" >Native adapters / custom agents</text>
+<rect x="911" y="207" width="399" height="158" rx="21" fill="#FFFFFF" stroke="#D6E4F9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="911" y="207" width="7" height="158" rx="4" fill="#386BD6" />
+<rect x="1211" y="222" width="80" height="26" rx="13" fill="#EEF4FF" />
+<text x="1251" y="240" font-size="12" font-weight="750" fill="#386BD6" text-anchor="middle" letter-spacing=".3">EXTEND</text>
+<text x="938" y="243" font-size="17" font-weight="800" fill="#386BD6" >03</text>
+<text x="938" y="279" font-size="27" font-weight="760" fill="#1C345D" >Models &amp; Gateways</text>
+<text x="938" y="310" font-size="17" font-weight="550" fill="#456182" >Model routes · APIs · protocols</text>
+<text x="938" y="341" font-size="15" font-weight="480" fill="#7A90AA" >Swap providers and models</text>
+<rect x="1334" y="207" width="399" height="158" rx="21" fill="#FFFFFF" stroke="#D6E4F9" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1334" y="207" width="7" height="158" rx="4" fill="#0B968A" />
+<rect x="1634" y="222" width="80" height="26" rx="13" fill="#EDF9F5" />
+<text x="1674" y="240" font-size="12" font-weight="750" fill="#0B968A" text-anchor="middle" letter-spacing=".3">EXTEND</text>
+<text x="1361" y="243" font-size="17" font-weight="800" fill="#0B968A" >04</text>
+<text x="1361" y="279" font-size="27" font-weight="760" fill="#1C345D" >Training Backends</text>
+<text x="1361" y="310" font-size="17" font-weight="550" fill="#456182" >TRL GRPO · OPD · custom</text>
+<text x="1361" y="341" font-size="15" font-weight="480" fill="#7A90AA" >Pluggable training strategies</text>
+<text x="65" y="414" font-size="15" font-weight="790" fill="#5373A6" letter-spacing="2.4">UNIFIED EVALUATION PIPELINE</text>
+<rect x="65" y="433" width="373" height="276" rx="23" fill="#FFFFFF" stroke="#D5E4F6" stroke-width="2" filter="url(#shadow)"/>
+<rect x="65" y="433" width="373" height="59" rx="22" fill="url(#indigo)" />
+<text x="91" y="470" font-size="26" font-weight="740" fill="#FFFFFF" >Datasets &amp; Tasks</text>
+<rect x="82" y="506" width="337" height="42" rx="11" fill="#EFF5FD" />
+<rect x="95" y="518" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="103.5" cy="526.5" r="3.6" fill="#3975D3"/>
+<text x="123" y="523" font-size="16.8" font-weight="740" fill="#24436D" >Agent benchmarks</text>
+<text x="123" y="541" font-size="13.7" font-weight="440" fill="#637C9B" >DeepSWE · TB 2.1 · GAIA · WildClaw</text>
+<rect x="82" y="554" width="337" height="42" rx="11" fill="#F6F9FE" />
+<rect x="95" y="566" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="103.5" cy="574.5" r="3.6" fill="#3975D3"/>
+<text x="123" y="571" font-size="16.8" font-weight="740" fill="#24436D" >General model tasks</text>
+<text x="123" y="589" font-size="13.7" font-weight="440" fill="#637C9B" >Benchmark-specific adapters</text>
+<rect x="82" y="602" width="337" height="42" rx="11" fill="#EFF5FD" />
+<rect x="95" y="614" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="103.5" cy="622.5" r="3.6" fill="#3975D3"/>
+<text x="123" y="619" font-size="16.8" font-weight="740" fill="#24436D" >Multimodal benchmarks</text>
+<text x="123" y="637" font-size="13.7" font-weight="440" fill="#637C9B" >Image / VLM task protocols</text>
+<rect x="82" y="650" width="337" height="42" rx="11" fill="#F6F9FE" />
+<rect x="95" y="662" width="17" height="17" rx="6" fill="#D8F2EB" />
+<circle cx="103.5" cy="670.5" r="3.6" fill="#12A78B"/>
+<text x="123" y="667" font-size="16.8" font-weight="740" fill="#24436D" >Custom &amp; synthetic</text>
+<text x="123" y="685" font-size="13.7" font-weight="440" fill="#637C9B" >Train / holdout splits</text>
+<path d="M443 566 H476" fill="none" stroke="#3979D8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#blueArrow)"/>
+<rect x="491" y="433" width="779" height="276" rx="23" fill="#FFFFFF" stroke="#C9DBF4" stroke-width="2.5" filter="url(#shadow)"/>
+<rect x="491" y="433" width="779" height="59" rx="22" fill="url(#indigo)" />
+<text x="520" y="470" font-size="26" font-weight="740" fill="#FFFFFF" >Evaluation Runners</text>
+<rect x="1106" y="449" width="139" height="26" rx="13" fill="#EBF4FF" />
+<text x="1175.5" y="467" font-size="13" font-weight="750" fill="#1D5CB8" text-anchor="middle" letter-spacing=".3">ROUTABLE</text>
+<rect x="514" y="510" width="235" height="176" rx="16" fill="#F1F6FE" stroke="#DBE8F8" stroke-width="1.5"/>
+<rect x="530" y="528" width="36" height="36" rx="11" fill="#DCEBFF" />
+<path d="M 540 545 h16 m-8 -8 v16" stroke="#2D71D3" stroke-width="3" stroke-linecap="round"/>
+<text x="575" y="553" font-size="22" font-weight="750" fill="#244571" >Harbor</text>
+<text x="532" y="603" font-size="15.8" font-weight="515" fill="#547092" >• Agent / tool tasks</text>
+<text x="532" y="629" font-size="15.8" font-weight="515" fill="#547092" >• Sandbox execution</text>
+<text x="532" y="655" font-size="15.8" font-weight="515" fill="#547092" >• ATIF when available</text>
+<rect x="761" y="510" width="235" height="176" rx="16" fill="#F1F6FE" stroke="#DBE8F8" stroke-width="1.5"/>
+<rect x="777" y="528" width="36" height="36" rx="11" fill="#DCEBFF" />
+<path d="M 787 545 h16 m-8 -8 v16" stroke="#2D71D3" stroke-width="3" stroke-linecap="round"/>
+<text x="822" y="553" font-size="22" font-weight="750" fill="#244571" >Direct</text>
+<text x="779" y="603" font-size="15.8" font-weight="515" fill="#547092" >• Text + image QA</text>
+<text x="779" y="629" font-size="15.8" font-weight="515" fill="#547092" >• Custom scorers</text>
+<text x="779" y="655" font-size="15.8" font-weight="515" fill="#547092" >• Model API calls</text>
+<rect x="1008" y="510" width="238" height="176" rx="16" fill="#F1F6FE" stroke="#DBE8F8" stroke-width="1.5"/>
+<rect x="1024" y="528" width="36" height="36" rx="11" fill="#DCEBFF" />
+<path d="M 1034 545 h16 m-8 -8 v16" stroke="#2D71D3" stroke-width="3" stroke-linecap="round"/>
+<text x="1069" y="553" font-size="22" font-weight="750" fill="#244571" >VLMEvalKit</text>
+<text x="1026" y="603" font-size="15.8" font-weight="515" fill="#547092" >• Native VLM prompts</text>
+<text x="1026" y="629" font-size="15.8" font-weight="515" fill="#547092" >• Image benchmarks</text>
+<text x="1026" y="655" font-size="15.8" font-weight="515" fill="#547092" >• Benchmark scoring</text>
+<path d="M1275 566 H1310" fill="none" stroke="#3979D8" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#blueArrow)"/>
+<rect x="1325" y="433" width="409" height="276" rx="23" fill="#FFFFFF" stroke="#D5E4F6" stroke-width="2" filter="url(#shadow)"/>
+<rect x="1325" y="433" width="409" height="59" rx="22" fill="url(#indigo)" />
+<text x="1351" y="470" font-size="26" font-weight="740" fill="#FFFFFF" >Unified Results</text>
+<rect x="1342" y="506" width="374" height="42" rx="11" fill="#EFF5FD" />
+<rect x="1355" y="518" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="1363.5" cy="526.5" r="3.6" fill="#3975D3"/>
+<text x="1383" y="523" font-size="16.8" font-weight="740" fill="#24436D" >Scores &amp; metrics</text>
+<text x="1383" y="541" font-size="13.7" font-weight="440" fill="#637C9B" >Trial-based evaluation</text>
+<rect x="1342" y="554" width="374" height="42" rx="11" fill="#F6F9FE" />
+<rect x="1355" y="566" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="1363.5" cy="574.5" r="3.6" fill="#3975D3"/>
+<text x="1383" y="571" font-size="16.8" font-weight="740" fill="#24436D" >Episodes &amp; reports</text>
+<text x="1383" y="589" font-size="13.7" font-weight="440" fill="#637C9B" >Cross-run comparisons</text>
+<rect x="1342" y="602" width="374" height="42" rx="11" fill="#EFF5FD" />
+<rect x="1355" y="614" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="1363.5" cy="622.5" r="3.6" fill="#3975D3"/>
+<text x="1383" y="619" font-size="16.8" font-weight="740" fill="#24436D" >ATIF &amp; tool trajectories</text>
+<text x="1383" y="637" font-size="13.7" font-weight="440" fill="#637C9B" >When produced by the harness</text>
+<rect x="1342" y="650" width="374" height="42" rx="11" fill="#F6F9FE" />
+<rect x="1355" y="662" width="17" height="17" rx="6" fill="#D8E8FF" />
+<circle cx="1363.5" cy="670.5" r="3.6" fill="#3975D3"/>
+<text x="1383" y="667" font-size="16.8" font-weight="740" fill="#24436D" >Gateway capture</text>
+<text x="1383" y="685" font-size="13.7" font-weight="440" fill="#637C9B" >Request windows and evidence</text>
+<path d="M1531 713 V749 H1130 V788" fill="none" stroke="#0B988D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#tealArrow)"/>
+<rect x="65" y="763" width="1669" height="217" rx="23" fill="#F8FFFD" stroke="#B7E2DC" stroke-width="2.5"/>
+<rect x="65" y="763" width="1669" height="55" rx="23" fill="url(#teal)" />
+<text x="94" y="799" font-size="26" font-weight="760" fill="#FFFFFF" >EVALUATION ↔ TRAINING FEEDBACK LOOP</text>
+<text x="1325" y="798" font-size="15" font-weight="590" fill="#D7FFFB" >optional training workflows</text>
+<rect x="94" y="836" width="369" height="108" rx="16" fill="#FFFFFF" stroke="#C7E6E2" stroke-width="1.5"/>
+<rect x="110" y="849" width="40" height="26" rx="13" fill="#DDF6EE" />
+<text x="130" y="867" font-size="12" font-weight="750" fill="#0C8B7F" text-anchor="middle" letter-spacing=".3">01</text>
+<text x="162" y="872" font-size="21" font-weight="760" fill="#1C565A" >Synthesize &amp; Validate</text>
+<text x="112" y="910" font-size="16" font-weight="530" fill="#467B7D" >Custom generators, auditors, splits</text>
+<rect x="514" y="836" width="369" height="108" rx="16" fill="#FFFFFF" stroke="#C7E6E2" stroke-width="1.5"/>
+<rect x="530" y="849" width="40" height="26" rx="13" fill="#DDF6EE" />
+<text x="550" y="867" font-size="12" font-weight="750" fill="#0C8B7F" text-anchor="middle" letter-spacing=".3">02</text>
+<text x="582" y="872" font-size="21" font-weight="760" fill="#1C565A" >Evaluate &amp; Collect</text>
+<text x="532" y="910" font-size="16" font-weight="530" fill="#467B7D" >Tasks, rewards, episodes, traces</text>
+<rect x="934" y="836" width="369" height="108" rx="16" fill="#FFFFFF" stroke="#C7E6E2" stroke-width="1.5"/>
+<rect x="950" y="849" width="40" height="26" rx="13" fill="#DDF6EE" />
+<text x="970" y="867" font-size="12" font-weight="750" fill="#0C8B7F" text-anchor="middle" letter-spacing=".3">03</text>
+<text x="1002" y="872" font-size="21" font-weight="760" fill="#1C565A" >Select &amp; Train</text>
+<text x="952" y="910" font-size="16" font-weight="530" fill="#467B7D" >OpenEnv / GRPO / OPD / custom</text>
+<rect x="1354" y="836" width="352" height="108" rx="16" fill="#FFFFFF" stroke="#C7E6E2" stroke-width="1.5"/>
+<rect x="1370" y="849" width="40" height="26" rx="13" fill="#DDF6EE" />
+<text x="1390" y="867" font-size="12" font-weight="750" fill="#0C8B7F" text-anchor="middle" letter-spacing=".3">04</text>
+<text x="1422" y="872" font-size="21" font-weight="760" fill="#1C565A" >Re-evaluate Models</text>
+<text x="1372" y="910" font-size="16" font-weight="530" fill="#467B7D" >Holdout tasks + benchmark checks</text>
+<path d="M467 890 H508" fill="none" stroke="#0B988D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#tealArrow)"/>
+<path d="M887 890 H928" fill="none" stroke="#0B988D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#tealArrow)"/>
+<path d="M1307 890 H1348" fill="none" stroke="#0B988D" stroke-width="5" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#tealArrow)"/>
+<path d="M247 759 V726 H250 V715" fill="none" stroke="#0B988D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" marker-end="url(#tealArrow)"/>
+<rect x="294" y="726" width="206" height="26" rx="13" fill="#EBF8F4" />
+<text x="397" y="744" font-size="13" font-weight="750" fill="#0B8B7D" text-anchor="middle" letter-spacing=".3">generated tasks</text>
+<rect x="1325" y="986" width="409" height="27" rx="13" fill="#E6F5F1" />
+<text x="1529.5" y="1004" font-size="14" font-weight="690" fill="#167E75" text-anchor="middle">updated models → next evaluation</text>
+<text x="66" y="1012" font-size="16" font-weight="510" fill="#7991AE" >Benchmark-specific dataset adapters and scoring must be validated independently.</text>
+</g></svg>
