@@ -1,0 +1,51 @@
+bundle = "~/.cache/tianxi-harbor/bundle"
+claude_code_version = ""
+opencode_version = "1.19.3"
+
+[datasets.terminal]
+handoff_profile = "terminal"
+name = "terminal-bench-2.1"
+path = "datasets/terminal-bench-2.1/tasks"
+
+[datasets.wildclaw]
+handoff_profile = "wildclaw"
+prepare = "wildclaw-crlf"
+name = "wildclawbench-harbor"
+path = "datasets/wildclaw-harbor"
+
+[datasets.deepswe]
+name = "deepswe-1.1"
+path_root = "bundle"
+path = "datasets/deepswe/tasks"
+
+[datasets.gaia]
+name = "gaia-validation-20261124"
+path_root = "bundle"
+path = "datasets/gaia"
+
+[datasets.tianxi-synth-v1-train]
+name = "tianxi-synth-v1-train"
+path = "../datasets/tianxi-synth-v1/train"
+
+[datasets.tianxi-synth-v1-holdout]
+name = "tianxi-synth-v1-holdout"
+path = "../datasets/tianxi-synth-v1/holdout"
+
+[training]
+backend = "trl"
+harness = "opencode"
+xtuner_enabled = false
+
+[synthesis.methods]
+order-reconcile = "synthesis_methods:order_reconcile"
+log-rollup = "synthesis_methods:log_rollup"
+
+[synthesis.auditors]
+order-reconcile = "synthesis_audit:order_rows"
+log-rollup = "synthesis_audit:log_rows"
+
+[synthesis.teacher]
+base_url = "https://api.zhizengzeng.com/v1"
+model = "deepseek-v4.1-flash"
+api_key_env = "TIANXI_SYNTH_TEACHER_API_KEY"
+disable_thinking = true
