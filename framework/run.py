@@ -221,6 +221,8 @@ def command_for(args, dataset, bundle, suite):
         cmd.extend(["--ak", value])
     for value in args.agent_env:
         cmd.extend(["--agent-env", value])
+    for value in args.verifier_env:
+        cmd.extend(["--verifier-env", value])
     return cmd
 
 
@@ -429,6 +431,8 @@ def main():
     parser.add_argument("--agent-kwarg", action="append", default=[], metavar="KEY=VALUE")
     parser.add_argument("--agent-env", action="append", default=[], metavar="KEY=VALUE",
                         help="Harbor agent environment assignment. Reference secrets as ${VAR}.")
+    parser.add_argument("--verifier-env", action="append", default=[], metavar="KEY=VALUE",
+                        help="Harbor verifier environment assignment. Reference secrets as ${VAR}.")
     parser.add_argument("--agent-version")
     tasks = parser.add_mutually_exclusive_group()
     tasks.add_argument("--task", action="append", default=[])
@@ -512,6 +516,8 @@ def main():
         parser.error("Select direct cases with --task")
     if runner == "direct" and args.api_format:
         parser.error("Direct runs use OpenAI Chat Completions")
+    if runner == "direct" and args.verifier_env:
+        parser.error("--verifier-env requires a Harbor dataset")
     if not isinstance(args.mounts, list) or not all(isinstance(mount, dict) for mount in args.mounts):
         parser.error("--mounts requires a JSON array of mount objects")
     if args.agent_ca_bundle:

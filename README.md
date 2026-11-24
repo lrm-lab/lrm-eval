@@ -1,45 +1,66 @@
 # LRM Eval
 
+LRM Eval 用统一入口评测 Agent 和基础模型。需要工具和沙箱的题由 Harbor 执行，轻量文本或图文题直接调用模型。每次运行用同一套记录格式导出分数、运行状态和可用轨迹，也可以把验收过的合成题交给 OpenEnv 和 TRL 做在线训练。
+
 ![LRM Eval architecture — unified benchmarking, Harbor evaluation, reporting, and training feedback](assets/lrm-eval-architecture.svg)
 
-统一的 Harbor 评测入口，支持自定义任务、多个模型和 harness、批次报告、训练采集验收及 OpenEnv + TRL 训练。使用 Harbor 自带的 Viewer 浏览原始作业。
+## 数据集
 
-| 入口 | 用途 |
+| Agent 题库 | 数据集 ID | 题包及验证状态 |
+|---|---|---|
+| DeepSWE 1.1 | `deepswe` | 113 道 Harbor 题，已有 Pi、OpenClaw 历史实跑，本轮跳过复测 |
+| Terminal-Bench 2.1 | `terminal` | 89 道 Harbor 题，Pi × Qwen3.8-27B 单题已通过评分及 ATIF 检查 |
+| GAIA validation | `gaia` | 165 道 Harbor 题，Pi × Qwen3.8-27B 单题已通过评分及 ATIF 检查，也有 Pi、OpenClaw 历史实跑 |
+| WildClawBench | `wildclaw` | 60 道 Harbor 题，保留原评分器和交接包适配器 |
+
+这四套题库由交接包提供。安装、数据位置和单题命令见 [部署与运行](framework/SETUP.md)。单题冒烟用于验证当前执行链路，完整跑分使用各题库的官方评分器、题库版本和分母。
+
+| 计划接入 | 数据集 | 当前状态 |
+|---|---|---|
+| 通用能力 | MMLU-Pro、HLE、IFBench、BFCL-v4、Multi-LCB、Global-MMLU-Lite、AA-LCR v1.1 | 待登记题库版本和适配评分。BFCL-v4 还需工具调用交互，Multi-LCB 需代码执行环境及测试 |
+| 多模态能力 | CMMMU、MMMU-Pro (10c)、MM-IFEval | 待适配各自的题目、图像和评分协议 |
+
+已有 `direct` 入口支持自定义文本和图文 JSONL、精确匹配及 Python 评分器。每个具名 benchmark 的加载、交互与计分仍需按其协议实现和实跑验证。
+
+## 模型和 harness
+
+`--model provider/model-id` 选择模型，`--base-url` 和 `--api-format` 选择网关协议。凭据由执行环境注入。每换一个模型、harness、网关或工具镜像，先跑一道会调用工具的短题，并检查评分和 ATIF。
+
+| Harness | 入口及协议 |
 |---|---|
-| `framework/run.py` | 在 Harbor 执行评测、导出 ATIF、暂停派发及续跑 |
-| `framework/report.py` | 重算批次报告，检查冒烟结果和训练采集 |
-| `framework/synthesize.py` | 生成、验收合成题，按真实分数筛选训练候选 |
-| `framework/train.py` | 调用 TRL 的 OpenEnv Harbor 异步 GRPO 示例 |
+| Pi | `--agent pi`，支持 Chat Completions。Terminal 和 WildClaw 使用交接包适配器 |
+| OpenClaw | `--agent openclaw`，支持 Chat Completions。Qwen3.8-27B 合成短题已完成评分，当前版本的 ATIF 工具轨迹待补 |
+| OpenCode | `--agent opencode`，已验收版本为 `1.19.3`，Qwen 的 Chat Completions 示例使用 `vllm/Qwen3_8-27B` |
+| Codex | `--agent codex`，使用 OpenAI Responses，Qwen3.8-27B 合成短题已完成评分和 ATIF 冒烟 |
+| Claude Code | `--agent claude-code`，指定版本并连接 Anthropic Messages。Qwen3.8-27B 的合成短题已通过临时兼容层冒烟 |
+| 自定义 | `--agent` 接受 Harbor 原生名称或 Python 导入路径，也可在数据集配置中绑定适配器 |
 
-## 运行一条自定义 Harbor 题
+## 自定义数据集和快速开始
 
-Linux 执行机需要 Python 3.12+、Docker、Compose、Buildx 和 `uvx`。默认使用 Harbor 0.26.0 和 LiteLLM 1.110.1。数据集配置及任务文件见 [DATASET_FORMAT.md](framework/DATASET_FORMAT.md)。
+手写题按 [任务格式](framework/DATASET_FORMAT.md) 提供说明、环境、参考解和评分器，在自己的 `harbor.toml` 注册。合成器可按固定种子生成订单对账和离线日志汇总题，支持注册新方法以及可选教师。新题可单题运行、重复指定 `--task`，也可用 `--all` 跑整个数据集。
+
+Linux 执行机准备好 Python 3.12+、Docker、Compose、Buildx 和 `uvx` 后，可以从空目录生成一题并用参考解检查 Docker 和评分。镜像拉取、共享盘运行、网关和代理配置见 [部署与运行](framework/SETUP.md)。这段命令只需要代码和基础 Docker 镜像。
 
 ```bash
 git clone https://github.com/lrm-lab/lrm-eval.git
 cd lrm-eval/framework
-
 python3 -B synthesize.py generate demo-v1 --method log-rollup \
   --train-per-method 1 --holdout-per-method 0
 python3 -B synthesize.py check ../datasets/demo-v1
-
 python3 -B run.py demo-v1-train --config ../datasets/demo-v1/harbor.toml \
-  --task log-rollup-train-001 --agent oracle --batch demo-oracle
+  --task log-rollup-train-001 --agent oracle --batch demo-oracle \
+  --output ../harbor-runs
 python3 -B report.py ../harbor-runs/demo-oracle --format markdown
 ```
 
-实际模型评测从环境读取网关配置和凭据。设置 `OPENAI_BASE_URL` 与 `OPENAI_API_KEY` 后，选用有该模型协议支持的 harness。例如，接 Chat Completions 接口时设置 `MODEL_ROUTE`，用一个短题确认工具执行、评分和轨迹：
+设置 `OPENAI_BASE_URL`、`OPENAI_API_KEY` 和与网关匹配的 `MODEL_ROUTE` 后，同一题可换成真实模型。用 `--output` 指定任意可写的结果目录。
 
 ```bash
 python3 -B run.py demo-v1-train --config ../datasets/demo-v1/harbor.toml \
   --task log-rollup-train-001 --agent opencode --model "$MODEL_ROUTE" \
-  --api-format openai_chat_completions --batch demo-smoke
+  --api-format openai_chat_completions --batch demo-smoke --output ../harbor-runs
 python3 -B report.py ../harbor-runs/demo-smoke --check-smoke --format markdown
 ```
-
-默认 OpenCode 版本为 1.19.3。执行机已有离线交接包时，设置 `TIANXI_BENCH_ASSETS` 后运行 `bash setup.sh --opencode`，以只读方式把固定二进制挂入任务容器。运行其他题库时可用 `--config` 登记其本地 Harbor 格式路径，也可用 `--bundle` 指向已有交接包。自定义容器代理可用 `--agent-env` 转发，信任的 CA 用 `--agent-ca-bundle` 传入。
-
-切换模型、harness、网关或工具环境时，先完成一次真实冒烟。正式批次可重复传 `--task`，或用 `--all`；`--attempts` 定义每题采样次数，`--output` 指定导出目录。每个组合用独立批次名。
 
 ## 计分和运行记录
 
