@@ -28,7 +28,7 @@ LRM Eval 是一套可扩展的 Agent Infra。**合成数据方法、Agent Harnes
 |---|---|---|
 | 通用能力 | MMLU-Pro、HLE、IFBench、BFCL-v4、Multi-LCB、Global-MMLU-Lite、AA-LCR v1.1 | 待登记题库版本和适配评分。BFCL-v4 还需工具调用交互，Multi-LCB 需代码执行环境及测试 |
 
-多模态入口 `vlmevalkit` 复用原生图文题面和评分，直连支持图像的模型 API。成绩和逐题问答写入统一结果目录。CMMMU 可按原生题包执行，MMMU-Pro (10c) 和 MM-IFEval 的运行条件见安装指南。 [VLMEvalKit 图文评测](framework/VLMEVALKIT.md)
+多模态入口 `vlmevalkit` 复用原生图文题面和评分，直连支持图像的模型 API。逐题图文问答与 Harbor Agent 轨迹共用 `ATIF-v1.7`，由 `episodes.jsonl` 索引。CMMMU 可按原生题包执行，MMMU-Pro (10c) 和 MM-IFEval 的运行条件见安装指南。 [VLMEvalKit 图文评测](framework/VLMEVALKIT.md)
 
 已有 `direct` 入口支持自定义文本和图文 JSONL、精确匹配及 Python 评分器。每个具名 benchmark 的加载、交互与计分仍需按其协议实现和实跑验证。
 

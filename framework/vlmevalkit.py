@@ -1,5 +1,6 @@
 """Run VLMEvalKit's datasets and scorers in their own Python environment."""
 import argparse
+from base64 import b64decode
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import hashlib
@@ -11,6 +12,53 @@ import shutil
 import subprocess
 import sys
 from uuid import uuid4
+
+
+def atif_trajectory(result, model):
+    """Represent the API dialogue and original image bytes using ATIF-v1.7."""
+    evidence = result["vlmeval_result"]
+    roles = {"user": "user", "system": "system", "assistant": "agent"}
+    extensions = {"image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp"}
+    media = {}
+    steps = []
+    for step_id, request in enumerate(evidence["request_messages"], 1):
+        step = {"step_id": step_id, "source": roles[request["role"]], "timestamp": result["started_at"]}
+        if step["source"] == "agent":
+            step["is_copied_context"] = True
+        content = request["content"]
+        if isinstance(content, str):
+            step["message"] = content
+        else:
+            parts, details = [], {}
+            for index, part in enumerate(content, 1):
+                if part["type"] == "text":
+                    parts.append({"type": "text", "text": part["text"]})
+                    continue
+                if part["type"] != "image_url":
+                    raise ValueError("VLMEvalKit ATIF supports text and inline images")
+                image = part["image_url"]
+                header, _, payload = image["url"].partition(",")
+                mime, _, encoding = header.removeprefix("data:").partition(";")
+                if not header.startswith("data:") or encoding != "base64" or mime not in extensions or not payload:
+                    raise ValueError("Unsupported VLMEvalKit image data URI")
+                filename = f"media/step-{step_id}-image-{index}.{extensions[mime]}"
+                media[filename] = b64decode(payload, validate=True)
+                parts.append({"type": "image", "source": {"media_type": mime, "path": filename}})
+                if "detail" in image:
+                    details[filename] = image["detail"]
+            step["message"] = parts
+            if details:
+                step["extra"] = {"image_details": details}
+        steps.append(step)
+    steps.append({"step_id": len(steps) + 1, "source": "agent",
+                  "timestamp": result["finished_at"], "message": evidence["prediction"]})
+    return {
+        "schema_version": "ATIF-v1.7",
+        "session_id": result["id"],
+        "agent": {"name": "vlmevalkit", "version": result["agent_info"].get("version") or "unknown",
+                  "model_name": model},
+        "steps": steps,
+    }, media
 
 
 def write_json(path, data):
@@ -144,6 +192,7 @@ def metric_result(metrics, key):
 
 
 def worker(path):
+    from vlmeval import __version__ as kit_version
     from vlmeval.api.gpt import GPT4V
     from vlmeval.smp import dump
     from vlmeval.smp.file import INFER_FAIL_MSG
@@ -222,7 +271,7 @@ def worker(path):
             "task_checksum": hashlib.sha256(
                 json.dumps([options["dataset"], index, vlm.prepared], sort_keys=True).encode()).hexdigest(),
             "started_at": started, "finished_at": datetime.now(timezone.utc).isoformat(),
-            "agent_info": {"name": "vlmevalkit", "model_info": {"name": model}},
+            "agent_info": {"name": "vlmevalkit", "version": kit_version, "model_info": {"name": model}},
             "exception_info": {"exception_type": error} if error else None,
             "vlmeval_result": {"dataset": options["dataset"], "sample_id": index,
                                "request_messages": vlm.prepared, "prediction": answer if error is None else None,

@@ -59,6 +59,15 @@ def publication_dir(path):
         path.chmod(0o755)
 
 
+def publish_vlmevalkit_trajectory(trial, result, model):
+    trajectory, media = vlmevalkit.atif_trajectory(result, model)
+    for relative, data in media.items():
+        path = trial / relative
+        publication_dir(path.parent)
+        atomic_write(path, data)
+    atomic_write(trial / "trajectory.json", (json.dumps(trajectory, ensure_ascii=False) + "\n").encode())
+
+
 def publish(job, output, metadata, training_dir=None, source_host=None, *, resumed=False, reward_key="reward"):
     """Publish only finished trial receipts; preserve valid zero rewards."""
     publication_dir(output)
@@ -146,14 +155,25 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                 evidence["direct_result"] = result["direct_result"]
                 trace_status = "direct_response"
             if "vlmeval_result" in result:
-                evidence["vlmeval_result"] = result["vlmeval_result"]
-                http_status = evidence["vlmeval_result"].get("http_status")
+                vlm = result["vlmeval_result"]
+                evidence["vlmeval_result"] = {
+                    key: value for key, value in vlm.items() if key not in ("request_messages", "prediction")
+                }
+                http_status = vlm.get("http_status")
                 if error and isinstance(http_status, int) and 200 <= http_status < 300:
                     diagnostic.update(kind="model_empty_answer", summary="模型网关响应成功，缺少可评分的回答。")
                 elif error and isinstance(http_status, int):
                     diagnostic.update(kind="model_gateway_http_error", summary=f"模型网关返回 HTTP {http_status}。")
-                elif not error and evidence["vlmeval_result"].get("request_messages"):
-                    trace_status = "model_request_response"
+                elif not error and vlm.get("request_messages") and vlm.get("prediction"):
+                    try:
+                        publish_vlmevalkit_trajectory(trial, result, metadata["model"])
+                    except (KeyError, TypeError, ValueError) as exc:
+                        print(f"Could not convert VLMEvalKit trace {trial_id}: {type(exc).__name__}",
+                              file=sys.stderr)
+                        trace_status = "invalid"
+                    else:
+                        trace_status = "no_tool_calls_recorded"
+                        trace_path = str(relative / "trajectory.json")
             atomic_write(trial / "result.json", (json.dumps(evidence, ensure_ascii=False) + "\n").encode())
             training_path = None
             training_status = "not_captured"

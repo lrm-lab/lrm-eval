@@ -52,9 +52,11 @@ python3.12 framework/report.py "$PWD/harbor-runs/cmmmu-001" --format markdown
 | 路径 | 内容 |
 |---|---|
 | `episodes.jsonl` | 每题一条记录，包含 trial ID、模型、运行状态、原生逐题分可用时的奖励 |
-| `trials/<UUID>/result.json` | `vlmeval_result` 中的样本 ID、发送给模型的消息、回答、HTTP 状态 |
+| `trials/<UUID>/trajectory.json` | 与 Harbor Agent 共用的 `ATIF-v1.7`。模型输入和回答按顺序保存，图片使用 ATIF 的图像内容类型 |
+| `trials/<UUID>/media/` | 模型实际收到的图片字节。ATIF 内图片路径相对于 `trajectory.json` |
+| `trials/<UUID>/result.json` | `vlmeval_result` 中的样本 ID、原生数据集名和 HTTP 状态 |
 | `batch-status.json`、`batch-report.json` | 作业位置、计划数、完成数、失败数和批次得分 |
 | `vlmevalkit/metrics.json` | VLMEvalKit 原生评分输出 |
 | `official-result.json` | 选择 `metric_key` 时，批次报告读取的原生指标与本批分母 |
 
-原始预测表和执行日志位于 `--work/jobs/<批次>/`。题面含图像时，逐题记录也会保存发送的图像内容。CMMMU 的原生评分只提供汇总，逐题 reward 留空。对原生评分器有明细的题库，可配置 `detail_file`（预测文件同目录下的明细文件名）和 `detail_score_key`，按原生 `index` 导入逐题成绩。有推理失败的批次只发布已完成的记录。多模态模型的问答证据用于复核评测。Agent 工具 ATIF 和在线训练 token 采集走各自的 Harbor 与 OpenEnv 入口。
+从 `episodes.jsonl` 的 `trajectory` 字段定位 ATIF。成功图文问答的 `trajectory_status` 为 `no_tool_calls_recorded`。原始模型请求、预测表和执行日志位于 `--work/jobs/<批次>/`。CMMMU 的原生评分只提供汇总，逐题 reward 留空。对原生评分器有明细的题库，可配置 `detail_file`（预测文件同目录下的明细文件名）和 `detail_score_key`，按原生 `index` 导入逐题成绩。在线训练的 token、logprob 和 loss mask 通过 OpenEnv 采集。

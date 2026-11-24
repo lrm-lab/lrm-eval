@@ -131,7 +131,8 @@ def summarize(rows, meta, progress, *, planned=None, attempts_per_task=None,
         values = [(r.get("usage") or {}).get(key) for r in rows]
         values = [v for v in values if finite(v) and v >= 0]
         usage[key] = {"observed": len(values), "total": math.fsum(values) if values else None}
-    response_count = sum(r.get("trajectory_status") == "model_request_response" for r in rows)
+    response_count = sum(r.get("trajectory_status") in {"model_request_response", "no_tool_calls_recorded"}
+                         for r in rows if r.get("runner") == "vlmevalkit")
     return {
         "schema_version": 1, "batch": meta.get("batch"), **dimensions,
         "batch_status": progress.get("status"), "totals": totals, "tasks": tasks, "usage": usage,
