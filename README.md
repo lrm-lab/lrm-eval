@@ -1,8 +1,17 @@
 # LRM Eval
 
-LRM Eval 用统一入口评测 Agent 和基础模型。需要工具和沙箱的题由 Harbor 执行，轻量文本或图文题直接调用模型。每次运行用同一套记录格式导出分数、运行状态和可用轨迹，也可以把验收过的合成题交给 OpenEnv 和 TRL 做在线训练。
+LRM Eval 是一套可扩展的 Agent Infra。用同一批任务对比 harness、模型和模型网关，记录评分与实际模型交互。合成任务通过验收后可进入在线训练，更新后的模型再用留出题和基准题评测。
 
-![LRM Eval architecture — unified benchmarking, Harbor evaluation, reporting, and training feedback](assets/lrm-eval-architecture.svg)
+![LRM Eval Agent Infra，涵盖数据集、数据合成、harness、模型、模型网关和训练](assets/lrm-eval-architecture.svg)
+
+| 模块 | 接入方式 |
+|---|---|
+| Harness | `--agent` 选择 Harbor 原生 harness 或 Python 适配器。数据集可绑定专用适配器。 |
+| 模型 | `--model` 选择模型路由。OPD 可以为不同环境和任务指定专家，把能力蒸馏到同一个学生。 |
+| 模型网关 | `--base-url` 和 `--api-format` 接入模型服务。`--gateway-capture` 用 OpenEnv 记录原生 harness 的请求窗口和工具往返。 |
+| 数据集 | 在 `harbor.toml` 登记题库。工具和沙箱任务走 Harbor，轻量文本及图文题走 `direct`，评分与轨迹按 trial 记录。 |
+| 数据合成 | `synthesize.py` 提供五种生成方法，支持注册生成器、题包写入器、验收器和独立验算器。 |
+| 训练 | `train.py` 支持 TRL GRPO 和多专家 OPD。通过配置接入其他训练后端，并替换路由、采样、评分和优化等组件。 |
 
 ## 数据集
 
