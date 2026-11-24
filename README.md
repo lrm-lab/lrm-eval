@@ -1,5 +1,7 @@
 # LRM Eval
 
+![LRM Eval architecture — unified benchmarking, Harbor evaluation, reporting, and training feedback](assets/lrm-eval-architecture.svg)
+
 统一的 Harbor 评测入口，支持自定义任务、多个模型和 harness、批次报告、训练采集验收及 OpenEnv + TRL 训练。使用 Harbor 自带的 Viewer 浏览原始作业。
 
 | 入口 | 用途 |
