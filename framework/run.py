@@ -57,7 +57,7 @@ def publication_dir(path):
         path.chmod(0o755)
 
 
-def publish(job, output, metadata, training_dir=None, source_host=None, *, resumed=False):
+def publish(job, output, metadata, training_dir=None, source_host=None, *, resumed=False, reward_key="reward"):
     """Publish only finished trial receipts; preserve valid zero rewards."""
     publication_dir(output)
     with (output / ".publish.lock").open("a") as lock:
@@ -90,7 +90,8 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
             publication_dir(trial)
             agent_info = result.get("agent_info") or {}
             rewards = (result.get("verifier_result") or {}).get("rewards") or {}
-            reward = rewards.get("reward")
+            receipt_reward_key = reward_key if reward_key in rewards else "reward"
+            reward = rewards.get(receipt_reward_key)
             if type(reward) not in (int, float) or not math.isfinite(reward):
                 reward = None
             error = batch_guard.primary_exception(result).get("exception_type")
@@ -98,7 +99,7 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
             status = (
                 "cancelled" if diagnostic and diagnostic["kind"] == "cancelled" else
                 "timeout" if error and "timeout" in error.lower() else
-                "failed" if error else "scored" if rewards else "unscored"
+                "failed" if error else "scored" if reward is not None else "unscored"
             )
             if error:
                 reward = None
@@ -119,7 +120,8 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                     trace_status = "invalid"
             evidence = {
                 "id": trial_id, "task_name": result["task_name"], "task_checksum": result.get("task_checksum"),
-                "agent_info": agent_info, "verifier_rewards": rewards, "exception_type": error,
+                "agent_info": agent_info, "verifier_rewards": rewards, "reward_key": receipt_reward_key,
+                "exception_type": error,
                 "failure": diagnostic,
                 "started_at": result.get("started_at"), "finished_at": result["finished_at"],
             }
@@ -328,6 +330,7 @@ def run_lock(args, cmd, dataset, output, cwd, env):
         "invocation_sha256": batch_guard.document_sha256([str(cwd), cmd]),
         "mounts_sha256": batch_guard.document_sha256(hardware_files),
         "output": str(output.resolve()),
+        **({"reward_key": args.reward_key} if args.reward_key != "reward" else {}),
     }
 
 
@@ -401,7 +404,7 @@ def execute_harbor(args, cmd, dataset, output, metadata, cwd, env):
             returncode = 128 - returncode
 
         count = publish(job, output, metadata, args.training_dir, args.source_host,
-                        resumed=args.resume) if job.is_dir() else 0
+                        resumed=args.resume, reward_key=args.reward_key) if job.is_dir() else 0
         print(f"Published {count} trial(s) to {output}")
         pause = read_json(pause_path) if pause_path.is_file() else None
         progress_file = job / "result.json"
@@ -471,6 +474,9 @@ def main():
     if args.suite not in datasets or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.suite):
         parser.error(f"Unknown dataset ID {args.suite!r}. Configured: {', '.join(sorted(datasets))}")
     suite = datasets[args.suite]
+    args.reward_key = suite.get("reward_key", "reward")
+    if not isinstance(args.reward_key, str) or not args.reward_key.strip():
+        parser.error("Dataset reward_key must be a nonempty string")
     config_dir = args.config.resolve().parent
     bundle_path = args.bundle or os.getenv("TIANXI_BENCH_BUNDLE") or config.get("bundle")
     bundle = (config_dir / Path(bundle_path).expanduser()).resolve() if bundle_path else None
@@ -498,7 +504,8 @@ def main():
         metadata["runner"] = "direct"
     output = args.output / args.batch
     if args.export_job:
-        count = publish(args.export_job.resolve(), output, metadata, args.training_dir, args.source_host)
+        count = publish(args.export_job.resolve(), output, metadata, args.training_dir, args.source_host,
+                        reward_key=args.reward_key)
         if count == 0:
             parser.error("No finished trial receipts found")
         original_result = args.export_job / "result.json"

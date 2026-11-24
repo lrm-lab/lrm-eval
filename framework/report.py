@@ -188,7 +188,8 @@ def check_smoke(root, rows, summary, minimum_reward):
         try:
             receipt = load_json(artifact(root, row.get("result")))
             trajectory = load_json(artifact(root, row.get("trajectory")))
-            if receipt.get("id") != row["trial_id"] or (receipt.get("verifier_rewards") or {}).get("reward") != row["reward"]:
+            rewards = receipt.get("verifier_rewards") or {}
+            if receipt.get("id") != row["trial_id"] or rewards.get(receipt.get("reward_key", "reward")) != row["reward"]:
                 reasons["receipt_mismatch"] += 1
             elif not has_tool_execution(trajectory):
                 reasons["no_matching_tool_observation"] += 1

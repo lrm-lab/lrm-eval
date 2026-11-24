@@ -11,7 +11,7 @@ LRM Eval 用统一入口评测 Agent 和基础模型。需要工具和沙箱的�
 | DeepSWE 1.1 | `deepswe` | 113 道 Harbor 题，已有 Pi、OpenClaw 历史实跑，本轮跳过复测 |
 | Terminal-Bench 2.1 | `terminal` | 89 道 Harbor 题，Pi × Qwen3.8-27B 单题已通过评分及 ATIF 检查 |
 | GAIA validation | `gaia` | 165 道 Harbor 题，Pi × Qwen3.8-27B 单题已通过评分及 ATIF 检查，也有 Pi、OpenClaw 历史实跑 |
-| WildClawBench | `wildclaw` | 60 道 Harbor 题，保留原评分器和交接包适配器 |
+| WildClawBench | `wildclaw` | 60 道 Harbor 题，Pi × Qwen3.8-27B 已完成单题评分和 ATIF 检查，保留原评分器和交接包适配器 |
 
 这四套题库由交接包提供。安装、数据位置和单题命令见 [部署与运行](framework/SETUP.md)。单题冒烟用于验证当前执行链路，完整跑分使用各题库的官方评分器、题库版本和分母。
 

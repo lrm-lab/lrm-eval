@@ -11,6 +11,7 @@ path = "datasets/terminal-bench-2.1/tasks"
 handoff_profile = "wildclaw"
 prepare = "wildclaw-crlf"
 name = "wildclawbench-harbor"
+reward_key = "overall_score"
 path = "datasets/wildclaw-harbor"
 
 [datasets.deepswe]
