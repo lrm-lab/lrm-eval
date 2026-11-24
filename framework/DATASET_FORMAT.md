@@ -37,6 +37,7 @@ description = "Reconcile two invoice files and produce a summary."
 [metadata]
 split = "train"
 source = "invoice-generator-v1"
+environment = "offline-files"
 difficulty = "easy"
 
 [agent]
@@ -71,7 +72,7 @@ Harbor verifier 若返回多个命名指标，用 `reward_key` 指定批次汇�
 
 先用统一入口的 `--plan` 检查题目路径，再在有 Docker 的执行机做参考解、空跑和真实 Agent 验收。数据集通过后，同一题可切换已配置的 harness 和模型。运行结果进统一的 `episodes.jsonl`，关联评分、ATIF 和可用的训练轨迹。题目交付只需要上述任务文件，轨迹由实际运行生成。
 
-订单对账和离线日志汇总可用 `synthesize.py` 生成。生成器同时写出题包本地的 `harbor.toml`，可直接传给统一入口的 `--config`。先运行 `synthesize.py check <题包目录>` 验证参考解、独立产物、空跑、典型错误和评分器异常。扩展方法及可选教师配置见 [项目的合成与训练说明](../README.md#合成和训练)。
+`synthesize.py` 可生成订单对账、离线日志汇总、图工具、自提问和多跳题，同时写出题包本地的 `harbor.toml`。先运行 `synthesize.py check <题包目录>` 验证参考解、独立产物、空跑、典型错误和评分器异常。OPD 可按任务的 `metadata.environment` 和 `metadata.source` 路由专家。生成方式、插件及训练入口见 [项目的合成与训练说明](../README.md#合成和训练)。
 
 ## 纯模型题的轻量格式
 
