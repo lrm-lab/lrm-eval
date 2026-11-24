@@ -40,10 +40,16 @@ xtuner_enabled = false
 [synthesis.methods]
 order-reconcile = "synthesis_methods:order_reconcile"
 log-rollup = "synthesis_methods:log_rollup"
+toolspace = "synthesis_reasoning:toolspace"
+self-questioning = "synthesis_reasoning:self_questioning"
+multi-hop = "synthesis_reasoning:multi_hop"
 
 [synthesis.auditors]
 order-reconcile = "synthesis_audit:order_rows"
 log-rollup = "synthesis_audit:log_rows"
+toolspace = "synthesis_reasoning_audit:toolspace"
+self-questioning = "synthesis_reasoning_audit:self_questioning"
+multi-hop = "synthesis_reasoning_audit:multi_hop"
 
 [synthesis.teacher]
 base_url = "https://api.zhizengzeng.com/v1"

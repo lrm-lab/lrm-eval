@@ -37,7 +37,7 @@ LRM Eval 用统一入口评测 Agent 和基础模型。需要工具和沙箱的�
 
 ## 自定义数据集和快速开始
 
-手写题按 [任务格式](framework/DATASET_FORMAT.md) 提供说明、环境、参考解和评分器，在自己的 `harbor.toml` 注册。合成器可按固定种子生成订单对账和离线日志汇总题，支持注册新方法以及可选教师。新题可单题运行、重复指定 `--task`，也可用 `--all` 跑整个数据集。
+手写题按 [任务格式](framework/DATASET_FORMAT.md) 提供说明、环境、参考解和评分器，在自己的 `harbor.toml` 注册。合成器可按固定种子生成订单对账、离线日志汇总、图工具、自提问和多跳题，支持注册新方法以及可选教师。新题可单题运行、重复指定 `--task`，也可用 `--all` 跑整个数据集。
 
 Linux 执行机准备好 Python 3.12+、Docker、Compose、Buildx 和 `uvx` 后，可以从空目录生成一题并用参考解检查 Docker 和评分。镜像拉取、共享盘运行、网关和代理配置见 [部署与运行](framework/SETUP.md)。这段命令只需要代码和基础 Docker 镜像。
 
@@ -76,13 +76,42 @@ python3 -B report.py ../harbor-runs/demo-smoke --check-smoke --format markdown
 
 ## 合成和训练
 
-`synthesize.py generate` 默认生成订单对账和离线日志汇总各 20 道训练候选、6 道留出题。参考解、独立正确产物、空跑、典型错误及评分器故障用 `synthesize.py check` 验收。生成的题包含可直接运行的 `harbor.toml`。在 `[synthesis.methods]` 注册额外的 `module:function`，在 `[synthesis.auditors]` 登记对应的独立验算函数。
+`synthesize.py` 注册了 5 种生成方法。默认每种生成 20 道训练候选题和 6 道留出题，共 130 题。已有的 `tianxi-synth-v1` 题包包含前两种方法的 52 道题。每种方法用固定种子生成输入、标准产物和典型错误，训练和留出使用独立模板或关系模式。题目遵循 [任务格式](framework/DATASET_FORMAT.md)。
 
-可选 `--teacher` 按环境变量 `TIANXI_SYNTH_TEACHER_API_KEY` 调用配置的 Chat Completions 教师，为各模板生成背景、边界条件建议和示范思路。默认教师为 DeepSeek V4.1 Flash，可通过独立配置文件更换端点或模型。
+| `--method` | 生成方式 |
+| --- | --- |
+| `order-reconcile` | 订单对账，覆盖事件过滤、去重和金额结算。 |
+| `log-rollup` | 离线日志汇总，覆盖分片、去重、时区和分位数。 |
+| `toolspace` | 从预定义工具依赖图生成可调用的离线 CLI 和记录，沿分支采样任务路径，再运行 CLI 回放参考解。评分检查输出的记录路径和结果。上游 ToolSpace 还包含真实轨迹挖图和状态化环境聚类。 [ToolSpace 项目](https://toolspace-agent.github.io/) |
+| `self-questioning` | 从记录提出候选问题，用全表复算，只保留完整条件唯一且单项条件有干扰项的问题。默认使用程序化提问。 |
+| `multi-hop` | 从三份事实分片连续做定向关系连接，训练题 2–4 跳，留出题 4–6 跳，评分检查每一跳的证据路径。 |
+
+```bash
+# 不依赖外部模型的可复现版本
+python3 -B synthesize.py generate my-synth-v1
+python3 -B synthesize.py check ../datasets/my-synth-v1
+
+# 可选教师。先在运行环境注入 TIANXI_SYNTH_TEACHER_API_KEY。
+python3 -B synthesize.py generate my-synth-teacher-v1 --teacher
+
+# 生成单题。也可重复传 --method，或调整每类题量和随机种子。
+python3 -B synthesize.py generate my-one-task-v1 --method log-rollup \
+  --train-per-method 1 --holdout-per-method 0 --seed 42
+
+python3 -B synthesize.py generate my-reasoning-v1 \
+  --method toolspace --method self-questioning --method multi-hop
+python3 -B synthesize.py check ../datasets/my-reasoning-v1
+```
+
+教师默认走智增增的 `deepseek-v4.1-flash`，每个方法和 split 生成一份题面背景、边界提示及示范思路。教师只收到合成素材的少量样例和评分约定。背景用于题面，边界提示和示范保存在题包外层的 `synthesis.json`，供人工审阅。程序负责标准产物、验收和评分。教师简报与后续强模型在 Harbor 里完成的 SFT 候选轨迹分别记录。
+
+新方法在 `harbor.toml` 的 `[synthesis.methods]` 登记为 `module:function`。函数接收 `(split, index, seed)`，返回 `synthesis_methods.Case`，包含输入文件、题目规则、CSV 或 JSON 预期结果、典型错误、Python 参考解、题面背景和可选的 `environment` 标签。参考解默认在 `/app` 工作，本地验收时接收等价工作目录作为第一个参数。[synthesis.auditors] 接收输入目录并独立重算答案。需要自定义镜像、工具服务或评分格式时，按方法在 `[synthesis.writers]` 注册 `(folder, method, split, case, scenario)`，在 `[synthesis.checkers]` 注册 `(task_dir, scratch_dir, auditor)`，由这两个插件负责题包写入和验收。生成器写出的配置可直接传给 `run.py --config <题包>/harbor.toml`。手写 Harbor 题也可按 [任务格式](framework/DATASET_FORMAT.md) 登记。
+
+`[synthesis.options.<方法名>]` 可给生成函数传关键字参数。`[synthesis.options.toolspace]` 的 `graph_file` 可指向自定义 JSON，以 `train` 和 `holdout` 为顶层键。每个 split 下按 `工具名 -> {关系名: 下一个工具名}` 定义有向无环图，第一个工具为入口，末端工具用空对象表示。可采样的末端至少经过三条边，且从入口只有一条路径。路径参数可用绝对路径或相对于命令运行目录的路径。
 
 训练候选用同一模型和同一 OpenCode 版本每题采样 8 次，随后运行 `synthesize.py select <episodes.jsonl>`。混合成败组进入 GRPO，0/8 交给强教师实跑，8/8 用于回归，异常或不完整样本进入复核。首轮门槛可用 `--min-grpo` 配置。
 
-训练侧使用 OpenEnv 采集模型实际返回的 token ID、logprob 与 loss mask，Harbor 给奖励，TRL 更新模型并同步权重到 vLLM。先跑 `report.py --check-training-captures <batch>` 核对评分和 trial 级采集文件，再核查一次真实更新和 vLLM 的权重版本。将 OpenEnv 和 vLLM 启动后，运行：
+GRPO 使用 OpenEnv 采集模型实际返回的 token ID、logprob 与 loss mask，Harbor 给奖励，TRL 更新模型并同步权重到 vLLM。先跑 `report.py --check-training-captures <batch>` 核对评分和 trial 级采集文件，再核查一次真实更新和 vLLM 的权重版本。将 OpenEnv 和 vLLM 启动后，运行：
 
 ```bash
 python3 -B train.py --trl-root "$TRL_ROOT" --plan -- \
@@ -91,3 +120,73 @@ python3 -B train.py --trl-root "$TRL_ROOT" --plan -- \
 ```
 
 SFT 需要源 trial、工具调用到结果的配对关系和对应的实际模型请求。发生上下文压缩时按请求窗口分段，记录目标起始位置。训练入口、采集协议及分段思路见以下来源。[TRL Harbor 示例](https://github.com/huggingface/trl/tree/main/examples/async_grpo_harbor) · [OpenEnv Harbor](https://github.com/openenv/OpenEnv/blob/main/docs/source/environments/harbor.md) · [Roller 计分和轨迹产物](https://github.com/Valen-Team/Roller/blob/main/README_zh-CN.md)
+
+### 多专家 OPD
+
+`train.py --backend opd` 给每个训练任务选定一个专家。每步先发布当前学生 checkpoint，由学生在 OpenEnv Harbor 里实跑，再用对应专家给学生实际采到的 token 评分。不同专家的分数进入同一次学生更新。更新使用被 loss mask 选中的 token 估计 reverse KL。Harbor reward 随轨迹记录，答错的有效轨迹也可以参与蒸馏。下一步从更新后的 checkpoint 重新采样。 [多专家 OPD 参考](https://tinker-docs.thinkingmachines.ai/cookbook/recipes/distillation/)
+
+在主配置的 `[training.opd]` 下配置，或通过 `--opd-config` 提供顶层 `[opd]` 配置。下面的模型路径和 OpenEnv split 名需按实际部署填写。`[opd.splits]` 的值取自 OpenEnv `/harbor_env/splits`。同一批次可重复传 `--dataset` 混合环境，或用 `--task` 选部分任务。
+
+```toml
+[opd]
+temperature = 1.0
+
+[opd.splits]
+my-reasoning-v1-train = "/srv/tianxi/datasets/my-reasoning-v1/train"
+
+[opd.experts.tools]
+model = "/models/tools-expert"
+device = "cuda:1"
+
+[opd.experts.reasoning]
+model = "/models/reasoning-expert"
+device = "cuda:1"
+
+[[opd.routes]]
+environment = "tool-catalog"
+expert = "tools"
+
+[[opd.routes]]
+environment = "record-catalog"
+expert = "reasoning"
+
+[[opd.routes]]
+environment = "fact-shards"
+expert = "reasoning"
+
+[[opd.routes]]
+dataset = "my-reasoning-v1-train"
+task = "multi-hop-train-001"
+expert = "tools"
+
+[opd.openenv]
+url = "http://127.0.0.1:8200"
+harness = "opencode"
+sandbox = "docker"
+
+[opd.student]
+device = "cuda:0"
+
+[opd.vllm]
+cuda_visible_devices = "2"
+args = ["--enable-auto-tool-choice", "--tool-call-parser", "hermes"]
+```
+
+规则可按 `dataset`、`environment`、`source` 和 `task` 精确匹配。先按 `priority` 选优先级，再按匹配字段数选择更具体的规则。缺少匹配或最高等级指向多个专家时，计划会报错。任务必须通过任务元数据或数据集配置标记 `split = "train"`。生成的训练题已带此字段；旧版订单和日志题会归入 `offline-files`。
+
+```bash
+python3 -B train.py --config ../datasets/my-reasoning-v1/harbor.toml \
+  --backend opd --plan -- --dataset my-reasoning-v1-train --opd-config ./opd.toml
+
+python3 -B train.py --config ../datasets/my-reasoning-v1/harbor.toml \
+  --backend opd -- --dataset my-reasoning-v1-train --opd-config ./opd.toml \
+  --student /models/student --output ../training-runs/opd-smoke --steps 2
+```
+
+默认后端使用单设备 Transformers 学生训练器和本地 Hugging Face 专家。专家需与学生使用相同的 token ID 映射和输出词表。远端 vLLM 专家可配置 `scorer = "training_opd_models:VLLMExpert"`，并提供 `url`（含 `/v1`）、`model`、`tokenizer` 和可选的 `api_key_env`。每步默认按专家轮转采样，每位被选中的专家各贡献一条轨迹。`--rollouts-per-step` 可改变批量大小。输出目录保存 `routing.json`、学生 checkpoint 及每步的 `opd.json`，记录该步的采样 checkpoint、任务、专家、奖励和 token 数。
+
+训练环境需有 PyTorch、Transformers、支持 `purpose="train"` 和 `to_training_trace` 的 OpenEnv Harbor，以及启用 processed logprobs 的 vLLM。默认 publisher 每步重启一次 vLLM 并使用新的模型 ID，适合小规模验收。OpenEnv 必须能访问 publisher 提供的 URL，可通过 `[opd.vllm]` 的 `host`、`port` 和 `url` 调整。`hermes` 是示例解析器，实际配置需匹配学生模型。 [vLLM 服务参数](https://docs.vllm.ai/en/stable/cli/serve/)
+
+`[opd.components]` 可用 `module:function` 替换 `router(task, settings)` 和 `scheduler(routed, seed)`，以及用返回组件实例的 `(args, settings)` 工厂替换 `publisher`、`rollout` 和 `optimizer`。Publisher 提供 `serve(checkpoint)` 上下文，rollout 提供 `sample(task, checkpoint, endpoint)`，优化器提供 `save`、`begin`、`accumulate` 和 `step`。每位专家可单独配置 scorer，工厂接收 `(definition, args, settings, optimizer)`，返回对象通过 `score(turn)` 给未屏蔽的学生 token 打分。远程权重服务可用 `training_opd_openenv:CommandPublisher`，其命令从 `[opd.publisher]` 读取，末尾收到 checkpoint 路径，stdout 返回包含 `checkpoint`、`model`、`url` 的 JSON。新的训练后端可在 `[training.backends]` 注册，接受 `(config, config_dir, trainer_args, plan=...)`。
+
+本地验收覆盖全部 130 道合成题。两个小型专家在 CPU 上完成两次学生权重更新，采样适配器每步读取最新 checkpoint。GPU、Docker 和 vLLM 的端到端训练仍待验证。

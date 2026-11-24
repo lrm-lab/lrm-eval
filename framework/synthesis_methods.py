@@ -16,6 +16,7 @@ class Case:
     wrong: list
     reference: str
     scenario: str
+    environment: str = "offline-files"
 
 
 def csv_text(columns, rows):

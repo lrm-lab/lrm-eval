@@ -32,7 +32,7 @@ def save_json(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
 
 
-def task_toml(task_id, method, split):
+def task_toml(task_id, method, split, environment):
     return f"""schema_version = "1.1"
 
 [task]
@@ -41,6 +41,7 @@ name = "tianxi-synthetic/{task_id}"
 [metadata]
 split = "{split}"
 source = "{method}"
+environment = {json.dumps(environment, ensure_ascii=False)}
 
 [agent]
 timeout_sec = 300.0
@@ -113,12 +114,16 @@ def teacher_notes(case, options):
 def load_method(target):
     module, separator, name = target.partition(":")
     if not separator:
-        raise ValueError("Synthesis methods use module:function")
-    return getattr(import_module(module), name)
+        raise ValueError("Synthesis plugins use module:function")
+    handler = getattr(import_module(module), name)
+    if not callable(handler):
+        raise ValueError(f"Synthesis plugin is not callable: {target}")
+    return handler
 
 
 def write_case(folder, method, split, case, scenario):
     if (not isinstance(case, Case) or not case.files
+            or not isinstance(case.environment, str) or not case.environment.strip()
             or not all(FILENAME.fullmatch(name) for name in case.files)
             or not FILENAME.fullmatch(case.expected["file"])
             or case.expected["file"] == "inputs"
@@ -131,7 +136,7 @@ def write_case(folder, method, split, case, scenario):
         directory.mkdir(parents=True)
     for name, content in case.files.items():
         (inputs / name).write_text(content)
-    (folder / "task.toml").write_text(task_toml(folder.name, method, split))
+    (folder / "task.toml").write_text(task_toml(folder.name, method, split, case.environment))
     (folder / "instruction.md").write_text(f"{scenario}\n\n{case.rules}\n")
     (inputs.parent / "Dockerfile").write_text(DOCKERFILE)
     shutil.copyfile(HERE / "synthesis_verify.py", tests / "verify.py")
@@ -148,6 +153,8 @@ def generate(args):
     config = tomllib.loads(args.config.read_text())
     settings = config.get("synthesis", {})
     methods = settings.get("methods", {})
+    writers = settings.get("writers", {})
+    method_options = settings.get("options", {})
     names = list(dict.fromkeys(args.method or methods))
     if not SLUG.fullmatch(args.name) or not names or not all(
         SLUG.fullmatch(name) and name in methods for name in names
@@ -182,18 +189,20 @@ def generate(args):
             registry.extend([f"\n[datasets.{dataset_id}]", f'name = "{dataset_id}"', f'path = "{split}"'])
             for method in names:
                 build = load_method(methods[method])
+                writer = load_method(writers[method]) if method in writers else write_case
                 for index in range(1, count + 1):
                     natural_seed = f"{args.seed}:{split}:{method}:{index}"
                     seed = int.from_bytes(hashlib.sha256(natural_seed.encode()).digest()[:8], "big")
-                    case = build(split, index, seed)
+                    case = build(split, index, seed, **method_options.get(method, {}))
                     template_id = f"{method}-{split}"
                     if args.teacher and index == 1:
                         notes[template_id] = teacher_notes(case, teacher)
                         print(f"Teacher briefing ready for {template_id}", flush=True)
                     scenario = notes.get(template_id, {}).get("scenario", case.scenario)
                     task_id = f"{method}-{split}-{index:03}"
-                    write_case(staged / split / task_id, method, split, case, scenario)
-                    files.append({"task_id": task_id, "method": method, "split": split, "seed": seed})
+                    writer(staged / split / task_id, method, split, case, scenario)
+                    files.append({"task_id": task_id, "method": method, "split": split,
+                                  "environment": case.environment, "seed": seed})
         (staged / "harbor.toml").write_text("\n".join(registry) + "\n")
         save_json(staged / "synthesis.json", {"dataset": args.name, "seed": args.seed,
                                              "teacher_model": teacher["model"] if args.teacher else None,
@@ -253,7 +262,9 @@ def check(args):
     if not folders:
         raise ValueError("No synthetic Harbor tasks found")
     config = tomllib.loads(args.config.read_text())
-    auditors = config.get("synthesis", {}).get("auditors", {})
+    settings = config.get("synthesis", {})
+    auditors = settings.get("auditors", {})
+    checkers = settings.get("checkers", {})
     failed = {}
     independent = 0
     for task in folders:
@@ -261,7 +272,8 @@ def check(args):
             try:
                 method = tomllib.loads((task / "task.toml").read_text()).get("metadata", {}).get("source")
                 audit = load_method(auditors[method]) if method in auditors else None
-                validate_case(task, Path(scratch), audit)
+                checker = load_method(checkers[method]) if method in checkers else validate_case
+                checker(task, Path(scratch), audit)
                 independent += int(audit is not None)
             except (OSError, ValueError, KeyError, AttributeError, ImportError, subprocess.SubprocessError) as error:
                 failed[task.name] = str(error)
@@ -345,7 +357,7 @@ def main():
     args = parser.parse_args()
     try:
         return {"generate": generate, "check": check, "select": select}[args.command](args)
-    except (OSError, ValueError, KeyError, AttributeError, ImportError) as error:
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, ImportError) as error:
         parser.error(str(error))
 
 
