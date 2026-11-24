@@ -9,7 +9,7 @@ LRM Eval 是一套可扩展的 Agent Infra。用同一批任务对比 harness、
 | Harness | `--agent` 选择 Harbor 原生 harness 或 Python 适配器。数据集可绑定专用适配器。 |
 | 模型 | `--model` 选择模型路由。OPD 可以为不同环境和任务指定专家，把能力蒸馏到同一个学生。 |
 | 模型网关 | `--base-url` 和 `--api-format` 接入模型服务。`--gateway-capture` 用 OpenEnv 记录原生 harness 的请求窗口和工具往返。 |
-| 数据集 | 在 `harbor.toml` 登记题库。工具和沙箱任务走 Harbor，轻量文本及图文题走 `direct`，评分与轨迹按 trial 记录。 |
+| 数据集 | 在 `harbor.toml` 登记题库。工具和沙箱任务走 Harbor，自定义文本及图文题可走 `direct`，原生图文题库可走 `vlmevalkit`。各入口按 trial 导出结果。 |
 | 数据合成 | `synthesize.py` 提供五种生成方法，支持注册生成器、题包写入器、验收器和独立验算器。 |
 | 训练 | `train.py` 支持 TRL GRPO 和多专家 OPD。通过配置接入其他训练后端，并替换路由、采样、评分和优化等组件。 |
 
@@ -27,7 +27,8 @@ LRM Eval 是一套可扩展的 Agent Infra。用同一批任务对比 harness、
 | 计划接入 | 数据集 | 当前状态 |
 |---|---|---|
 | 通用能力 | MMLU-Pro、HLE、IFBench、BFCL-v4、Multi-LCB、Global-MMLU-Lite、AA-LCR v1.1 | 待登记题库版本和适配评分。BFCL-v4 还需工具调用交互，Multi-LCB 需代码执行环境及测试 |
-| 多模态能力 | CMMMU、MMMU-Pro (10c)、MM-IFEval | 待适配各自的题目、图像和评分协议 |
+
+多模态入口 `vlmevalkit` 复用原生图文题面和评分，直连支持图像的模型 API。成绩和逐题问答写入统一结果目录。CMMMU 可按原生题包执行，MMMU-Pro (10c) 和 MM-IFEval 的运行条件见安装指南。 [VLMEvalKit 图文评测](framework/VLMEVALKIT.md)
 
 已有 `direct` 入口支持自定义文本和图文 JSONL、精确匹配及 Python 评分器。每个具名 benchmark 的加载、交互与计分仍需按其协议实现和实跑验证。
 

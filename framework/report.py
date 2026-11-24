@@ -131,6 +131,7 @@ def summarize(rows, meta, progress, *, planned=None, attempts_per_task=None,
         values = [(r.get("usage") or {}).get(key) for r in rows]
         values = [v for v in values if finite(v) and v >= 0]
         usage[key] = {"observed": len(values), "total": math.fsum(values) if values else None}
+    response_count = sum(r.get("trajectory_status") == "model_request_response" for r in rows)
     return {
         "schema_version": 1, "batch": meta.get("batch"), **dimensions,
         "batch_status": progress.get("status"), "totals": totals, "tasks": tasks, "usage": usage,
@@ -141,6 +142,7 @@ def summarize(rows, meta, progress, *, planned=None, attempts_per_task=None,
         "trajectories": dict(sorted(Counter(r.get("trajectory_status", "unknown") for r in rows).items())),
         "training": dict(sorted(Counter(r.get("training_status", "not_captured") for r in rows).items())),
         "official": read_official(official, dimensions["dataset"]) if official else None,
+        **({"valid_model_responses": response_count} if meta.get("runner") == "vlmevalkit" else {}),
     }
 
 
@@ -291,6 +293,9 @@ def as_markdown(report):
     if official := report["official"]:
         lines.extend(["", f"官方结果 **{label(official['metric'])}** {official['score']}，官方分母 "
                            f"{official['denominator']}。来源 {label(official['source'])}"])
+    if "valid_model_responses" in report:
+        lines.extend(["", f"有效模型回答 {report['valid_model_responses']}/{label(report['totals']['planned'])}。"
+                           "表中的覆盖率按有效逐题评分计算。"])
     for name, title in (("smoke_check", "冒烟检查"), ("gateway_capture_check", "网关采集检查"),
                         ("training_capture_check", "训练采集检查")):
         if verdict := report.get(name):
@@ -316,9 +321,10 @@ def main():
     args = parser.parse_args()
     try:
         root, rows, meta, progress = read_batch(args.batch)
+        official = root / "official-result.json"
         result = summarize(rows, meta, progress, planned=args.planned,
                            attempts_per_task=args.attempts_per_task, pass_threshold=args.pass_threshold,
-                           official=args.official_result)
+                           official=args.official_result or (official if official.is_file() else None))
         tests = []
         if args.check_smoke:
             result["smoke_check"] = check_smoke(root, rows, result, args.min_smoke_reward)

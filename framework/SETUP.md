@@ -2,6 +2,8 @@
 
 ## 1. 准备执行机
 
+图文 API 评测可以单独安装 VLMEvalKit。 [图文评测安装和短测](VLMEVALKIT.md)
+
 使用 Linux x86_64、Python 3.12+、可访问 Docker 的运行账号，以及 Docker Compose 和 Buildx。安装交接包还需 `tar`、`zstd`、`flock` 和可写的本地缓存。验证当前账号能访问 Docker 并检查磁盘空间。 [Docker Engine 安装](https://docs.docker.com/engine/install/) · [uv 安装](https://docs.astral.sh/uv/getting-started/installation/)
 
 ```bash

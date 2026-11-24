@@ -22,6 +22,7 @@ import batch_guard
 import direct
 import gateway_capture
 import report as batch_report
+import vlmevalkit
 from training_capture import load_training_capture
 
 SHARED = Path(__file__).resolve().parent.parent
@@ -144,6 +145,15 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
             if "direct_result" in result:
                 evidence["direct_result"] = result["direct_result"]
                 trace_status = "direct_response"
+            if "vlmeval_result" in result:
+                evidence["vlmeval_result"] = result["vlmeval_result"]
+                http_status = evidence["vlmeval_result"].get("http_status")
+                if error and isinstance(http_status, int) and 200 <= http_status < 300:
+                    diagnostic.update(kind="model_empty_answer", summary="模型网关响应成功，缺少可评分的回答。")
+                elif error and isinstance(http_status, int):
+                    diagnostic.update(kind="model_gateway_http_error", summary=f"模型网关返回 HTTP {http_status}。")
+                elif not error and evidence["vlmeval_result"].get("request_messages"):
+                    trace_status = "model_request_response"
             atomic_write(trial / "result.json", (json.dumps(evidence, ensure_ascii=False) + "\n").encode())
             training_path = None
             training_status = "not_captured"
@@ -216,7 +226,9 @@ def episode_usage(result):
 def write_batch_report(output, planned=None):
     try:
         _, rows, metadata, status = batch_report.read_batch(output)
-        result = batch_report.summarize(rows, metadata, status, planned=planned)
+        official = output / "official-result.json"
+        result = batch_report.summarize(rows, metadata, status, planned=planned,
+                                        official=official if official.is_file() else None)
         batch_report.write_report(output / "batch-report.json",
                                   json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + "\n")
     except (OSError, ValueError, TypeError, KeyError) as error:
@@ -498,6 +510,56 @@ def execute_gateway(args, dataset, output, metadata):
     return batch_guard.PAUSED_EXIT if counts["paused"] else int(not success)
 
 
+def publish_vlmevalkit_metrics(job, output):
+    for relative in ("vlmevalkit/metrics.json", "official-result.json"):
+        source = job / relative
+        if source.is_file():
+            target = output / relative
+            publication_dir(target.parent)
+            atomic_write(target, source.read_bytes())
+
+
+def execute_vlmevalkit(args, suite, dataset, output, metadata):
+    options = vlmevalkit.options_for(suite, dataset)
+    if (args.attempts != 1 or args.api_format or args.agent_version or args.agent_kwarg
+            or args.agent_env or args.verifier_env or args.mounts or args.training_dir):
+        raise ValueError("VLMEvalKit uses Chat Completions with one prediction per sample")
+    mode = "infer" if args.task else options.get("mode", "all")
+    if args.plan:
+        print(json.dumps({"runner": "vlmevalkit", "dataset": options["dataset"], "path": str(dataset),
+                          "tasks": args.task or "all", "model": args.model, "mode": mode}, ensure_ascii=False))
+        return 0
+    if not args.base_url or not os.getenv("OPENAI_API_KEY"):
+        raise ValueError("VLMEvalKit requires OPENAI_BASE_URL and OPENAI_API_KEY")
+    job = args.work / "jobs" / args.batch
+    if job.exists() or output.exists():
+        raise ValueError("Batch already exists. Use a fresh name or --export-job")
+    publication_dir(output.parent)
+    output.mkdir()
+    output.chmod(0o755)
+    status = output / "batch-status.json"
+    state = {"source": {"host": args.source_host, "path": str(job)}, "status": "running"}
+    atomic_write(status, (json.dumps(state) + "\n").encode())
+    try:
+        exit_code = vlmevalkit.launch(args, suite, dataset, job, mode)
+        state["status"] = "finished" if exit_code == 0 else "failed"
+    except KeyboardInterrupt:
+        state["status"] = "interrupted"
+        raise
+    finally:
+        if state["status"] == "running":
+            state["status"] = "failed"
+        count = publish(job, output, metadata, source_host=args.source_host)
+        publish_vlmevalkit_metrics(job, output)
+        state["completed"] = count
+        if (job / "result.json").is_file():
+            state["planned"] = read_json(job / "result.json")["n_total_trials"]
+        atomic_write(status, (json.dumps(state) + "\n").encode())
+        write_batch_report(output)
+        print(f"Published {count} trial(s) to {output}")
+    return exit_code
+
+
 def main():
     os.umask(0o077)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -511,7 +573,7 @@ def main():
     parser.add_argument("--agent-version")
     tasks = parser.add_mutually_exclusive_group()
     tasks.add_argument("--task", action="append", default=[])
-    tasks.add_argument("--all", action="store_true", help="Run all tasks in a Harbor dataset")
+    tasks.add_argument("--all", action="store_true", help="Run all tasks in a Harbor or VLMEvalKit dataset")
     parser.add_argument("--model")
     parser.add_argument("--base-url")
     parser.add_argument("--api-format", help="Harbor model API format for the configured gateway")
@@ -565,25 +627,27 @@ def main():
     if suite.get("prepare") not in (None, "wildclaw-crlf"):
         parser.error("Unknown dataset preparation method")
     runner = suite.get("runner", "harbor")
-    if runner not in ("harbor", "direct"):
-        parser.error("Dataset runner must be harbor or direct")
+    if runner not in ("harbor", "direct", "vlmevalkit"):
+        parser.error("Dataset runner must be harbor, direct, or vlmevalkit")
     if args.resume and runner != "harbor":
         parser.error("Checked resume is available for Harbor datasets")
-    if runner == "direct" and args.agent is not None:
-        parser.error("Direct datasets are run by the model API. Omit --agent.")
-    args.agent = "direct" if runner == "direct" else args.agent or "pi"
+    if runner != "harbor" and args.agent is not None:
+        parser.error(f"{runner} datasets are run by the model API. Omit --agent.")
+    args.agent = runner if runner != "harbor" else args.agent or "pi"
     if not args.model and args.agent not in ("oracle", "nop"):
         parser.error("Specify --model for the selected harness")
     metadata = {"schema_version": 1, "dataset": suite["name"], "harness": args.agent,
                 "model": args.model, "batch": args.batch}
-    if runner == "direct":
-        metadata["runner"] = "direct"
+    if runner != "harbor":
+        metadata["runner"] = runner
     output = args.output / args.batch
     if args.export_job:
         count = publish(args.export_job.resolve(), output, metadata, args.training_dir, args.source_host,
                         reward_key=args.reward_key)
         if count == 0:
             parser.error("No finished trial receipts found")
+        if runner == "vlmevalkit":
+            publish_vlmevalkit_metrics(args.export_job, output)
         original_result = args.export_job / "result.json"
         try:
             planned = read_json(original_result).get("n_total_trials") if original_result.is_file() else None
@@ -619,7 +683,7 @@ def main():
         bundled_bin = bundle / "install" / "runner-env" / "bin"
         if os.access(bundled_bin / "harbor", os.X_OK):
             os.environ.setdefault("PI_BENCH_RUNNER_BIN", str(bundled_bin))
-    if not args.base_url and (args.gateway_capture or runner == "direct" or args.agent in ("pi", "openclaw", "claude-code")
+    if not args.base_url and (args.gateway_capture or runner != "harbor" or args.agent in ("pi", "openclaw", "claude-code")
                               or args.api_format in ("openai_chat_completions", "openai_responses")):
         variable = "ANTHROPIC_BASE_URL" if args.agent == "claude-code" and not args.gateway_capture else "OPENAI_BASE_URL"
         args.base_url = os.getenv(variable)
@@ -652,6 +716,12 @@ def main():
                 dataset = prepare_wildclaw(dataset, bundle, args.work, args.suite)
             return execute_gateway(args, dataset, output, metadata)
         except (OSError, ValueError, RuntimeError) as error:
+            parser.error(str(error))
+
+    if runner == "vlmevalkit":
+        try:
+            return execute_vlmevalkit(args, suite, dataset, output, metadata)
+        except (OSError, ValueError, TypeError, KeyError) as error:
             parser.error(str(error))
 
     if runner == "direct":
