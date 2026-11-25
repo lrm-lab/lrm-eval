@@ -37,6 +37,40 @@ def sampled_logprobs(model, turn, temperature):
     return scaled.gather(1, selected[:, None]).squeeze(1) - scaled.logsumexp(dim=1)
 
 
+def behavior_logprob_error(scores, turn):
+    import torch
+
+    if not torch.isfinite(scores).all():
+        raise ValueError("Checkpoint produced non-finite logprobs")
+    behavior = scores.new_tensor([p for p, bit in zip(turn.behavior_logps, turn.loss_mask) if bit])
+    return (scores.detach() - behavior).abs().max().item()
+
+
+def check_previous_policy(model, previous_checkpoint, options, samples, temperature, tolerance):
+    """Test whether fresh behavior rules out the previous weights at the configured tolerance."""
+    import torch
+
+    previous = load_model(previous_checkpoint, options, model.device)
+    old_parameters = dict(previous.named_parameters())
+    changed_name = next((name for name, parameter in model.named_parameters()
+                         if not torch.equal(old_parameters[name], parameter)), None)
+    if changed_name is None:
+        raise ValueError(f"No student parameter changed since {previous_checkpoint}")
+    old_errors = []
+    with torch.no_grad():
+        for sample in samples:
+            old_error = 0.0
+            for turn in sample.turns:
+                old = sampled_logprobs(previous, turn, temperature)
+                old_error = max(old_error, behavior_logprob_error(old, turn))
+            old_errors.append(old_error)
+    # Both callers also check the current weights against every supervised token.
+    if min(old_errors) <= tolerance:
+        raise ValueError("A rollout cannot distinguish the two checkpoints at logprob_tolerance")
+    return {"previous_checkpoint": str(previous_checkpoint), "changed_parameter": changed_name,
+            "previous_max_error_per_rollout": old_errors, "logprob_tolerance": tolerance}
+
+
 class Student:
     """Single-device reference optimizer. Each sampled batch drives one update."""
 
@@ -52,6 +86,7 @@ class Student:
         self.max_grad_norm = positive(options.get("max_grad_norm", 1), "student max_grad_norm")
         device = options.get("device", "cuda" if torch.cuda.is_available() else "cpu")
         self.tokenizer = AutoTokenizer.from_pretrained(args.student, revision=options.get("revision"))
+        self.options = options
         self.model = load_model(args.student, options, device)
         self.optimizer = torch.optim.AdamW(
             self.model.parameters(), lr=positive(options.get("learning_rate", 1e-5), "student learning_rate"),
@@ -72,7 +107,8 @@ class Student:
         teacher = current.new_tensor(targets)
         if teacher.shape != current.shape or not self.torch.isfinite(teacher).all() or (teacher > 0).any():
             raise ValueError("Expert must return one finite log-probability for every unmasked sampled token")
-        if not self.torch.isfinite(current).all() or (current.detach() - behavior).abs().max().item() > self.tolerance:
+        self.last_logprob_error = (current.detach() - behavior).abs().max().item()
+        if not self.torch.isfinite(current).all() or self.last_logprob_error > self.tolerance:
             raise ValueError("Rollout logprobs disagree with the current student checkpoint or sampling policy")
         # A token-level score-function gradient for KL(student || expert), with the
         # behavior logprob and expert logprob held fixed through the update.
@@ -80,6 +116,10 @@ class Student:
         loss = (current * difference).sum() / self.total_tokens
         loss.backward()
         return difference.sum().item()
+
+    def verify_rollouts(self, previous_checkpoint, samples):
+        return check_previous_policy(self.model, previous_checkpoint, self.options, samples,
+                                     self.temperature, self.tolerance)
 
     def step(self):
         self.torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm, error_if_nonfinite=True)

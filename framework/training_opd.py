@@ -51,6 +51,9 @@ class Rollout:
     checkpoint: Path
     reward: float
     turns: tuple[TokenTurn, ...]
+    requested_model: str | None = None
+    trial_name: str | None = None
+    session_id: str | None = None
 
 
 def resolve(target):
@@ -179,6 +182,9 @@ def run(args, settings, routed, routing):
                 path.rename(checkpoint)
             return checkpoint
 
+        if args.verify_update and not callable(getattr(optimizer, "verify_rollouts", None)):
+            raise ValueError("--verify-update requires an optimizer supporting verify_rollouts")
+        previous_checkpoint = None
         checkpoint = save(0, {"student": args.student})
         batch_size = args.rollouts_per_step if args.rollouts_per_step is not None else len(scorers)
         for step in range(1, args.steps + 1):
@@ -191,20 +197,34 @@ def run(args, settings, routed, routing):
                         raise ValueError(f"Invalid rollout for {task.dataset}/{task.task} at {checkpoint.name}")
                     batch.append((task, expert, sample))
 
+            policy_check = None
+            if args.verify_update and previous_checkpoint is not None:
+                policy_check = optimizer.verify_rollouts(previous_checkpoint, [sample for _, _, sample in batch])
             optimizer.begin(sum(turn.tokens for _, _, sample in batch for turn in sample.turns))
             evidence = []
             for task, expert, sample in batch:
                 reverse_kl = 0.0
                 tokens = 0
+                logprob_errors = []
                 for turn in sample.turns:
                     targets = scorers[expert].score(turn)
                     reverse_kl += optimizer.accumulate(turn, targets)
                     tokens += turn.tokens
+                    if getattr(optimizer, "last_logprob_error", None) is not None:
+                        logprob_errors.append(optimizer.last_logprob_error)
                 evidence.append({"dataset": task.dataset, "task": task.task, "expert": expert,
+                                 "requested_model": getattr(sample, "requested_model", None),
+                                 "trial_name": getattr(sample, "trial_name", None),
+                                 "session_id": getattr(sample, "session_id", None),
+                                 "max_behavior_logprob_error": max(logprob_errors, default=None),
                                  "reward": sample.reward, "tokens": tokens,
                                  "sampled_reverse_kl": reverse_kl / tokens})
             optimizer.step()
-            checkpoint = save(step, {"step": step, "rollout_checkpoint": checkpoint.name, "rollouts": evidence})
+            previous_checkpoint = checkpoint
+            metrics = {"step": step, "rollout_checkpoint": checkpoint.name, "rollouts": evidence}
+            if policy_check is not None:
+                metrics["policy_check"] = policy_check
+            checkpoint = save(step, metrics)
             print(f"OPD step {step}: {checkpoint}", flush=True)
 
 
@@ -217,10 +237,14 @@ def launch(config, config_dir, argv, *, plan=False):
     parser.add_argument("--output", type=Path)
     parser.add_argument("--steps", type=int, default=1)
     parser.add_argument("--rollouts-per-step", type=int)
+    parser.add_argument("--verify-update", action="store_true",
+                        help="Verify new rollouts against both current and previous student weights (2+ steps)")
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args(argv)
     if args.steps < 1 or (args.rollouts_per_step is not None and args.rollouts_per_step < 1):
         parser.error("Steps and rollouts per step must be positive")
+    if args.verify_update and args.steps < 2:
+        parser.error("--verify-update needs at least two rounds of sampling")
     settings = config.get("training", {}).get("opd", {})
     if args.opd_config:
         settings = {**settings, **tomllib.loads(args.opd_config.read_text())["opd"]}
