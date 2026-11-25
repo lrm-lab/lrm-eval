@@ -10,6 +10,10 @@ def read(inputs, name):
 def toolspace(inputs):
     request = read(inputs, "request.json")
     data = read(inputs, "tool-data.json")
+    return tool_answer(request, data)
+
+
+def tool_answer(request, data):
     queue = [(request["start_tool"], [request["start_id"]], frozenset())]
     answers = []
     while queue:
