@@ -163,6 +163,18 @@ SFT 需要源 trial、工具调用到结果的配对关系和对应的实际模�
 
 `train.py --backend opd` 给每个训练任务选定一个专家。每步先发布当前学生 checkpoint，由学生在 OpenEnv Harbor 里实跑，再用对应专家给学生实际采到的 token 评分。不同专家的分数进入同一次学生更新。更新使用被 loss mask 选中的 token 估计 reverse KL。Harbor reward 随轨迹记录，答错的有效轨迹也可以参与蒸馏。下一步从更新后的 checkpoint 重新采样。 [多专家 OPD 参考](https://tinker-docs.thinkingmachines.ai/cookbook/recipes/distillation/)
 
+如果所有专家都由同一个底座微调而来，并且有完整的本地 Hugging Face 权重，可以用专家权重初始化学生，再开始 OPD。在 `framework/` 下执行：
+
+```bash
+python3 -B prepare_opd_student.py --base /models/base \
+  --expert /models/tools-expert --expert /models/reasoning-expert \
+  --output /models/student-init
+```
+
+把生成的目录传给训练入口的 `--student /models/student-init`。初始参数为 50% 底座加 50% 专家平均值，两个专家各占 25%。准备过程在 CPU 上逐个读取专家，用 FP32 累加后恢复底座参数的数据类型，内存需容纳一份 FP32 底座及一个专家。输出保留底座的配置、tokenizer 和缓冲区，`opd-init.json` 保存输入路径和权重占比。可以用同一批任务和多个种子对比从底座和从混合权重开始训练的每域成绩。
+
+本地专家还可以在各自的 `[opd.experts.<名称>]` 下设置 `scorer = "training_opd_models:FullDistributionExpert"`。学生仍然自己采样。对于 loss mask 选中的每个位置，训练器使用专家对整个词表的概率计算条件 KL(student ‖ expert)，并在 `opd.json` 中记录 `exact_reverse_kl`。默认 scorer 只取实际采到的 token 的分数。完整概率需要额外内存，规模随该轮受训 token 数和词表大小增长。远端 vLLM 专家仍可使用现有的单 token scorer。
+
 在主配置的 `[training.opd]` 下配置，或通过 `--opd-config` 提供顶层 `[opd]` 配置。下面的模型路径和 OpenEnv split 名需按实际部署填写。`[opd.splits]` 的值取自 OpenEnv `/harbor_env/splits`。同一批次可重复传 `--dataset` 混合环境，或用 `--task` 选部分任务。
 
 ```toml
