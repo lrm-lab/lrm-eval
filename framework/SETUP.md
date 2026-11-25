@@ -105,6 +105,8 @@ python3 -B report.py "$EVAL_OUT/demo-codex" --check-smoke --format markdown
 
 `--gateway-capture` 启动本机 OpenEnv 采集代理。Harbor 启动原生 harness，代理接收它的模型请求，再转发给 `OPENAI_BASE_URL`。上游凭据由 `OPENAI_API_KEY` 注入，沙箱使用独立采集会话。当前入口使用 OpenEnv 0.14.0 和 Harbor 0.26.0。
 
+网关采集使用 OpenEnv 为所选 harness 配置的推理设置。同时指定 `--gateway-capture` 和 `--thinking` 会在解析命令时直接报错，包括使用 `--plan` 时。
+
 在具备 Docker 权限的执行账号中准备 Python 3.12+ 环境。若已有安装这些包的环境，可直接运行评测入口。
 
 ```bash

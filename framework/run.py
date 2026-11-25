@@ -599,7 +599,11 @@ def main():
     parser.add_argument("--api-format", help="Harbor model API format for the configured gateway")
     parser.add_argument("--mounts", type=json.loads, default=[], help="Harbor Docker bind mounts as a JSON array")
     parser.add_argument("--agent-ca-bundle", type=Path, help="Trusted CA bundle to mount into the agent")
-    parser.add_argument("--thinking", default="medium")
+    reasoning = parser.add_mutually_exclusive_group()
+    reasoning.add_argument("--thinking",
+                           help="Reasoning effort for supported native Harbor harnesses (default: medium)")
+    reasoning.add_argument("--gateway-capture", action="store_true",
+                           help="Capture model request windows using OpenEnv's harness settings")
     parser.add_argument("--batch", required=True)
     parser.add_argument("--concurrent", type=int, default=1)
     parser.add_argument("--attempts", type=int, default=1)
@@ -612,8 +616,6 @@ def main():
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--bundle", type=Path, help="Local copy of the handoff bundle")
     parser.add_argument("--training-dir", type=Path, help="Trial-bound captures produced by the OpenEnv collector")
-    parser.add_argument("--gateway-capture", action="store_true",
-                        help="Run Harbor via the OpenEnv proxy and save actual model request windows")
     parser.add_argument("--capture-host", default="172.17.0.1",
                         help="Docker-reachable local IPv4 address on which the capture gateway listens")
     mode = parser.add_mutually_exclusive_group()
@@ -621,6 +623,8 @@ def main():
     mode.add_argument("--export-job", type=Path, help="Import completed trial receipts from a local job")
     mode.add_argument("--resume", action="store_true", help="Continue a locked local Harbor batch")
     args = parser.parse_args()
+    if not args.gateway_capture and args.thinking is None:
+        args.thinking = "medium"
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.batch):
         parser.error("Invalid batch name")
     if args.concurrent < 1 or args.attempts < 1 or args.pause_after < 0:
