@@ -299,6 +299,10 @@ def select(args):
     rows = [json.loads(line) for line in args.episodes.read_text().splitlines() if line.strip()]
     if not rows or args.attempts < 2 or args.min_grpo < 1:
         raise ValueError("Supply nonempty episodes, at least two attempts, and a positive GRPO threshold")
+    if not 0 <= args.min_reward_spread < 1:
+        raise ValueError("Minimum reward spread must be in [0, 1)")
+    if args.min_reward_spread and args.reward_mode != "continuous":
+        raise ValueError("A reward spread threshold requires --reward-mode continuous")
     if {row["harness"] for row in rows} != {args.harness}:
         raise ValueError(f"Selection requires one harness: {args.harness}")
     models = {row["model_route"] for row in rows}
@@ -313,29 +317,35 @@ def select(args):
     decisions = []
     for task_id, group in sorted(groups.items()):
         scored = [r for r in group if r["status"] == "scored"
-                  and type(r["reward"]) in (int, float) and r["reward"] in (0, 1)]
+                  and type(r["reward"]) in (int, float) and 0 <= r["reward"] <= 1
+                  and (args.reward_mode == "continuous" or r["reward"] in (0, 1))]
         scored_ids = {r["trial_id"] for r in scored}
         excluded = Counter(r.get("exception_type") or
                            ("invalid_reward" if r["status"] == "scored" else r["status"]) for r in group
                            if r["trial_id"] not in scored_ids)
-        correct = sum(r["reward"] == 1 for r in scored)
+        rewards = [r["reward"] for r in scored]
+        correct = rewards.count(1)
         hashes = {r.get("task_checksum") for r in group}
         versions = {r.get("harness_version") for r in group if r.get("harness_version")}
         if (len(group) != args.attempts or len(scored) != args.attempts
                 or len(hashes) != 1 or None in hashes or len(versions) > 1):
             lane = "review"
-        elif correct == 0:
+        elif max(rewards) == 0:
             lane = "teacher"
         elif correct == args.attempts:
             lane = "regression"
-        else:
+        elif max(rewards) - min(rewards) > args.min_reward_spread:
             lane = "grpo"
+        else:
+            lane = "review"
         decisions.append({"task_id": task_id, "task_directory": task_id.rsplit("/", 1)[-1],
                           "attempts": len(group), "scored": len(scored),
-                          "passed": correct, "excluded": dict(excluded), "lane": lane})
+                          "passed": correct, "min_reward": min(rewards, default=None),
+                          "max_reward": max(rewards, default=None), "excluded": dict(excluded), "lane": lane})
     totals = Counter(item["lane"] for item in decisions)
     report = {"dataset": next(iter(datasets)), "harness": args.harness, "model": next(iter(models)),
               "required_attempts": args.attempts, "min_grpo": args.min_grpo,
+              "reward_mode": args.reward_mode, "min_reward_spread": args.min_reward_spread,
               "threshold_met": totals["grpo"] >= args.min_grpo, "totals": dict(totals), "tasks": decisions}
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -366,6 +376,10 @@ def main():
     choose.add_argument("--harness", default="opencode")
     choose.add_argument("--attempts", type=int, default=8)
     choose.add_argument("--min-grpo", type=int, default=10)
+    choose.add_argument("--reward-mode", choices=("binary", "continuous"), default="binary",
+                        help="Accept binary rewards or partial credit in [0, 1]")
+    choose.add_argument("--min-reward-spread", type=float, default=0.0,
+                        help="In continuous mode, the group's max minus min must exceed this noise floor")
     choose.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:

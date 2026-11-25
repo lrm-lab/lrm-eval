@@ -142,6 +142,8 @@ api_key_env = "QUESTION_PROPOSER_KEY"
 
 训练候选用同一模型和同一 OpenCode 版本每题采样 8 次，随后运行 `synthesize.py select <episodes.jsonl>`。混合成败组进入 GRPO，0/8 交给强教师实跑，8/8 用于回归，异常或不完整样本进入复核。首轮门槛可用 `--min-grpo` 配置。
 
+Pi 每题采样 4 次且评分器提供 0 到 1 的部分分时，可用 `synthesize.py select <episodes.jsonl> --harness pi --attempts 4 --reward-mode continuous`。同组最高分与最低分之差必须大于 `--min-reward-spread` 才进入 GRPO。确定性评分器默认用 0，有评分波动时按同一交付物的重复评分设置阈值。全部为 0 的组进入教师队列，全部满分的组进入回归队列，分差不足的部分分组进入复核。
+
 GRPO 使用 OpenEnv 采集实际 token ID、logprob 和 loss mask。项目默认固定 TRL 提交 `b2686bf5c300756cdf878b84f83a48f794e2fb94`，按 verifier 原始正确性训练。先在独立的 TRL checkout 安装该版本及其 Harbor 示例依赖，启动 OpenEnv 和 vLLM。用 `report.py --check-training-captures <batch>` 可核查已有 trial 的训练采集。
 
 ```bash
