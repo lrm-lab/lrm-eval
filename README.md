@@ -86,15 +86,15 @@ python3 -B report.py ../harbor-runs/demo-smoke --check-smoke --format markdown
 
 ## 合成和训练
 
-`synthesize.py` 注册了 5 种生成方法。默认每种生成 20 道训练候选题和 6 道留出题，共 130 题。已有的 `tianxi-synth-v1` 题包包含前两种方法的 52 道题。每种方法用固定种子生成输入、标准产物和典型错误，训练和留出使用独立模板或关系模式。题目遵循 [任务格式](framework/DATASET_FORMAT.md)。
+`synthesize.py` 注册了 5 种生成方法。默认每种生成 20 道训练候选题和 6 道留出题，共 130 题。已有的 `tianxi-synth-v1` 题包包含前两种方法的 52 道题。每种方法可单独调用，多次传入 `--method` 会将选中的方法写入同一题包。离线生成使用固定种子，训练和留出分别采样。题目遵循 [任务格式](framework/DATASET_FORMAT.md)。
 
 | `--method` | 生成方式 |
 | --- | --- |
 | `order-reconcile` | 订单对账，覆盖事件过滤、去重和金额结算。 |
 | `log-rollup` | 离线日志汇总，覆盖分片、去重、时区和分位数。 |
-| `toolspace` | 从预定义工具依赖图生成可调用的离线 CLI 和记录，沿分支采样任务路径，再运行 CLI 回放参考解。评分检查输出的记录路径和结果。上游 ToolSpace 还包含真实轨迹挖图和状态化环境聚类。 [ToolSpace 项目](https://toolspace-agent.github.io/) |
-| `self-questioning` | 从记录提出候选问题，用全表复算，只保留完整条件唯一且单项条件有干扰项的问题。默认使用程序化提问。 |
-| `multi-hop` | 从三份事实分片连续做定向关系连接，训练题 2–4 跳，留出题 4–6 跳，评分检查每一跳的证据路径。 |
+| `toolspace` | 从工具图生成查找、交接、版本过期后恢复三类任务。目录记录保存在独立的 Docker 服务，CLI 逐条查询。评分同时核对证据路径、服务端提交状态和回执。 [ToolSpace 项目](https://toolspace-agent.github.io/) |
+| `self-questioning` | 从材料提出唯一匹配、最早、最晚三类问题。每个条件都要影响结果，独立 SQL 验算从公开题面重算答案。支持离线出题、模型出题和已接受提案回放。 |
+| `multi-hop` | 生成直链、双条件汇合和时点归属三类证据题。每对只改一个事实，正确联系人随之变化。评分核对答案和来源记录，独立验算逐条移除关键事实检查必要性。 |
 
 ```bash
 # 不依赖外部模型的可复现版本
@@ -118,6 +118,27 @@ python3 -B synthesize.py check ../datasets/my-reasoning-v1
 新方法在 `harbor.toml` 的 `[synthesis.methods]` 登记为 `module:function`。函数接收 `(split, index, seed)`，返回 `synthesis_methods.Case`，包含输入文件、题目规则、CSV 或 JSON 预期结果、典型错误、Python 参考解、题面背景和可选的 `environment` 标签。参考解默认在 `/app` 工作，本地验收时接收等价工作目录作为第一个参数。[synthesis.auditors] 接收输入目录并独立重算答案。需要自定义镜像、工具服务或评分格式时，按方法在 `[synthesis.writers]` 注册 `(folder, method, split, case, scenario)`，在 `[synthesis.checkers]` 注册 `(task_dir, scratch_dir, auditor)`，由这两个插件负责题包写入和验收。生成器写出的配置可直接传给 `run.py --config <题包>/harbor.toml`。手写 Harbor 题也可按 [任务格式](framework/DATASET_FORMAT.md) 登记。
 
 `[synthesis.options.<方法名>]` 可给生成函数传关键字参数。`[synthesis.options.toolspace]` 的 `graph_file` 可指向自定义 JSON，以 `train` 和 `holdout` 为顶层键。每个 split 下按 `工具名 -> {关系名: 下一个工具名}` 定义有向无环图，第一个工具为入口，末端工具用空对象表示。可采样的末端至少经过三条边，且从入口只有一条路径。路径参数可用绝对路径或相对于命令运行目录的路径。
+
+团队可复制随仓库提供的 `framework/harbor.toml`，在已有表内添加注册项。例如，给 ToolSpace 的新工具图注册名称 `warehouse-handoff`，在 `synthesis.methods`、`synthesis.writers`、`synthesis.checkers` 和 `synthesis.auditors` 中分别沿用 `toolspace` 的对应函数，再在 `[synthesis.options.warehouse-handoff]` 设置 `graph_file`。用 `--config team.toml --method warehouse-handoff` 可单独生成，验题时也传入同一份配置。全新方法可以放在自己的可导入模块里；返回标准 `Case` 的文件题仅需在 `synthesis.methods` 添加一个名称和函数入口。
+
+分别试一种方法时，可在 `framework/` 运行下面的命令。训练和留出各生成 6 道，覆盖三种图结构及其配对版本。相同方法、配置和种子单独生成或混合生成会得到相同的离线题目。
+
+```bash
+python3 -B synthesize.py generate graph-pilot --method multi-hop --seed 42 \
+  --train-per-method 6 --holdout-per-method 6
+python3 -B synthesize.py check ../datasets/graph-pilot
+```
+
+自提问默认自带材料。自己的 `materials_file` 使用 JSON 对象，`train` 和 `holdout` 对应文档数组，每行有唯一 `id`、`owner`、`team`、`topic`、`stage` 和整数时间序号 `ordinal`。可将某类错例转成 `focus = "earliest"` 或 `"latest"`。配置模型出题时，在自有配置文件中加入以下条目，模型基于材料给出条件和证据 ID，框架检查证据、唯一性及每个条件的必要性，并由校验过的条件生成题面。最多重新提案两次。此选项独立于生成背景介绍的 `--teacher`。
+
+```toml
+[synthesis.options.self-questioning.proposer]
+base_url = "https://your-model-service.example/v1"
+model = "your-model"
+api_key_env = "QUESTION_PROPOSER_KEY"
+```
+
+已接受的结构化提案写入题包根目录的 `synthesis.json`。使用相同方法名称、材料、种子和题目数量，设置 `[synthesis.options.self-questioning]` 的 `replay_manifest` 指向此文件，可以离线重放。自定义方法若要生成配对题，可在 `[synthesis.seed_groups]` 将方法名配置为 `2`。同一 split 中相邻两题共享随机种子，生成函数用 `index` 决定每题的变化。训练和留出的种子独立。
 
 训练候选用同一模型和同一 OpenCode 版本每题采样 8 次，随后运行 `synthesize.py select <episodes.jsonl>`。混合成败组进入 GRPO，0/8 交给强教师实跑，8/8 用于回归，异常或不完整样本进入复核。首轮门槛可用 `--min-grpo` 配置。
 

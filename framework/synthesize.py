@@ -155,6 +155,7 @@ def generate(args):
     methods = settings.get("methods", {})
     writers = settings.get("writers", {})
     method_options = settings.get("options", {})
+    group_sizes = settings.get("seed_groups", {})
     names = list(dict.fromkeys(args.method or methods))
     if not SLUG.fullmatch(args.name) or not names or not all(
         SLUG.fullmatch(name) and name in methods for name in names
@@ -190,8 +191,12 @@ def generate(args):
             for method in names:
                 build = load_method(methods[method])
                 writer = load_method(writers[method]) if method in writers else write_case
+                group_size = group_sizes.get(method, 1)
+                if type(group_size) is not int or group_size < 1:
+                    raise ValueError(f"Invalid seed group size for {method}")
                 for index in range(1, count + 1):
-                    natural_seed = f"{args.seed}:{split}:{method}:{index}"
+                    seed_index = 1 + (index - 1) // group_size
+                    natural_seed = f"{args.seed}:{split}:{method}:{seed_index}"
                     seed = int.from_bytes(hashlib.sha256(natural_seed.encode()).digest()[:8], "big")
                     case = build(split, index, seed, **method_options.get(method, {}))
                     template_id = f"{method}-{split}"
@@ -201,8 +206,13 @@ def generate(args):
                     scenario = notes.get(template_id, {}).get("scenario", case.scenario)
                     task_id = f"{method}-{split}-{index:03}"
                     writer(staged / split / task_id, method, split, case, scenario)
-                    files.append({"task_id": task_id, "method": method, "split": split,
-                                  "environment": case.environment, "seed": seed})
+                    record = {"task_id": task_id, "method": method, "split": split,
+                              "environment": case.environment, "seed": seed}
+                    if group_size > 1:
+                        record["seed_group"] = seed_index
+                    if getattr(case, "provenance", None):
+                        record["generation"] = case.provenance
+                    files.append(record)
         (staged / "harbor.toml").write_text("\n".join(registry) + "\n")
         save_json(staged / "synthesis.json", {"dataset": args.name, "seed": args.seed,
                                              "teacher_model": teacher["model"] if args.teacher else None,
@@ -239,6 +249,9 @@ def validate_case(task, scratch, audit):
                    check=True, capture_output=True, timeout=15)
     if verify() != 1:
         raise ValueError("reference solver must score 1")
+    # Auditors may cross-check the public question and task metadata alongside the scratch inputs.
+    for name in ("instruction.md", "task.toml"):
+        shutil.copyfile(task / name, scratch / name)
     independent = audit(app / "inputs") if audit else expected["rows"]
     write_candidate(candidate, expected, independent)
     if verify() != 1:
