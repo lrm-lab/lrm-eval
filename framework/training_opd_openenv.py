@@ -85,7 +85,8 @@ class OpenEnvRollout:
         turns = captured_turns(result, self.temperature)
         if result.task_name != ref.task_name or result.task_id != ref.task_id or result.dataset != ref.dataset:
             raise ValueError("OpenEnv rollout task identity does not match the requested task")
-        return Rollout(checkpoint, result.reward, turns)
+        return Rollout(checkpoint, result.reward, turns, requested_model=endpoint.model,
+                       trial_name=result.trial_name, session_id=result.session_id)
 
 
 class VLLMPublisher:
@@ -105,7 +106,7 @@ class VLLMPublisher:
         command = [
             self.options.get("executable", "vllm"), "serve", str(checkpoint),
             "--host", host, "--port", str(port), "--served-model-name", model,
-            "--logprobs-mode", "processed_logprobs", "--generation-config", "vllm",
+            "--return-tokens-as-token-ids", "--logprobs-mode", "processed_logprobs", "--generation-config", "vllm",
             *self.options.get("args", []),
         ]
         environment = dict(os.environ)
