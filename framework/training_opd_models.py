@@ -1,9 +1,14 @@
 """Transformers optimizer and exact-token expert scorers for Tianxi OPD."""
 
+from dataclasses import dataclass
 import json
 import math
 import os
+from typing import TYPE_CHECKING
 from urllib.request import Request, urlopen
+
+if TYPE_CHECKING:
+    from torch import Tensor
 
 
 def positive(value, name):
@@ -25,7 +30,7 @@ def load_model(model, options, device):
     return AutoModelForCausalLM.from_pretrained(model, **arguments).to(device).eval()
 
 
-def sampled_logprobs(model, turn, temperature):
+def prediction_logits(model, turn, temperature):
     import torch
 
     token_ids = torch.tensor([turn.prompt + turn.completion], device=model.device)
@@ -33,7 +38,11 @@ def sampled_logprobs(model, turn, temperature):
     positions = [len(turn.prompt) + i - 1 for i, bit in enumerate(turn.loss_mask) if bit]
     logits = model(input_ids=token_ids[:, :-1], use_cache=False).logits[0, positions].float()
     selected = token_ids[0, [index + 1 for index in positions]]
-    scaled = logits / temperature
+    return logits / temperature, selected
+
+
+def sampled_logprobs(model, turn, temperature):
+    scaled, selected = prediction_logits(model, turn, temperature)
     return scaled.gather(1, selected[:, None]).squeeze(1) - scaled.logsumexp(dim=1)
 
 
@@ -71,6 +80,12 @@ def check_previous_policy(model, previous_checkpoint, options, samples, temperat
             "previous_max_error_per_rollout": old_errors, "logprob_tolerance": tolerance}
 
 
+@dataclass(frozen=True)
+class ExpertDistribution:
+    """Full-vocabulary log probabilities at the eligible prediction positions."""
+    logps: "Tensor"
+
+
 class Student:
     """Single-device reference optimizer. Each sampled batch drives one update."""
 
@@ -102,6 +117,9 @@ class Student:
         self.optimizer.zero_grad(set_to_none=True)
 
     def accumulate(self, turn, targets):
+        self.last_exact_kl_sum = None
+        if isinstance(targets, ExpertDistribution):
+            return self.accumulate_distribution(turn, targets)
         current = sampled_logprobs(self.model, turn, self.temperature)
         behavior = current.new_tensor([logp for logp, bit in zip(turn.behavior_logps, turn.loss_mask) if bit])
         teacher = current.new_tensor(targets)
@@ -116,6 +134,25 @@ class Student:
         loss = (current * difference).sum() / self.total_tokens
         loss.backward()
         return difference.sum().item()
+
+    def accumulate_distribution(self, turn, targets):
+        logits, selected = prediction_logits(self.model, turn, self.temperature)
+        current = logits.log_softmax(dim=-1)
+        teacher = targets.logps.detach().to(device=current.device, dtype=current.dtype)
+        if teacher.shape != current.shape or not self.torch.isfinite(teacher).all():
+            raise ValueError("Expected finite expert logprobs over the student vocabulary at each eligible token")
+        actual = current.gather(1, selected[:, None]).squeeze(1)
+        self.last_logprob_error = behavior_logprob_error(actual, turn)
+        if self.last_logprob_error > self.tolerance:
+            raise ValueError("Rollout logprobs disagree with the current student checkpoint or sampling policy")
+
+        # Conditional KL(student || expert) on student-visited prefixes. Both
+        # pi and log(pi) carry gradients; the teacher and sampling history do not.
+        kl_sum = (current.exp() * (current - teacher)).sum()
+        (kl_sum / self.total_tokens).backward()
+        self.last_exact_kl_sum = kl_sum.item()
+        behavior = actual.new_tensor([p for p, bit in zip(turn.behavior_logps, turn.loss_mask) if bit])
+        return (behavior - teacher.gather(1, selected[:, None]).squeeze(1)).sum().item()
 
     def verify_rollouts(self, previous_checkpoint, samples):
         return check_previous_policy(self.model, previous_checkpoint, self.options, samples,
@@ -150,7 +187,18 @@ class Expert:
             if self.model.get_output_embeddings().weight.shape[0] != self.vocab_size:
                 raise ValueError("Expert and student must share the same output vocabulary size")
         with torch.no_grad():
-            return sampled_logprobs(self.model, turn, self.temperature).tolist()
+            return self.scores_at_positions(turn)
+
+    def scores_at_positions(self, turn):
+        return sampled_logprobs(self.model, turn, self.temperature).tolist()
+
+
+class FullDistributionExpert(Expert):
+    """Local teacher for exact conditional reverse-KL distillation."""
+
+    def scores_at_positions(self, turn):
+        logits, _ = prediction_logits(self.model, turn, self.temperature)
+        return ExpertDistribution(logits.log_softmax(dim=-1))
 
 
 class VLLMExpert:

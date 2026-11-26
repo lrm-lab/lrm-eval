@@ -206,10 +206,13 @@ def run(args, settings, routed, routing):
                 reverse_kl = 0.0
                 tokens = 0
                 logprob_errors = []
+                exact_kl_sums = []
                 for turn in sample.turns:
                     targets = scorers[expert].score(turn)
                     reverse_kl += optimizer.accumulate(turn, targets)
                     tokens += turn.tokens
+                    if getattr(optimizer, "last_exact_kl_sum", None) is not None:
+                        exact_kl_sums.append(optimizer.last_exact_kl_sum)
                     if getattr(optimizer, "last_logprob_error", None) is not None:
                         logprob_errors.append(optimizer.last_logprob_error)
                 evidence.append({"dataset": task.dataset, "task": task.task, "expert": expert,
@@ -219,6 +222,8 @@ def run(args, settings, routed, routing):
                                  "max_behavior_logprob_error": max(logprob_errors, default=None),
                                  "reward": sample.reward, "tokens": tokens,
                                  "sampled_reverse_kl": reverse_kl / tokens})
+                if len(exact_kl_sums) == len(sample.turns):
+                    evidence[-1]["exact_reverse_kl"] = sum(exact_kl_sums) / tokens
             optimizer.step()
             previous_checkpoint = checkpoint
             metrics = {"step": step, "rollout_checkpoint": checkpoint.name, "rollouts": evidence}
