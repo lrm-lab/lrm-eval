@@ -647,7 +647,11 @@ def main():
     parser.add_argument("--api-format", help="Harbor model API format for the configured gateway")
     parser.add_argument("--mounts", type=json.loads, default=[], help="Harbor Docker bind mounts as a JSON array")
     parser.add_argument("--agent-ca-bundle", type=Path, help="Trusted CA bundle to mount into the agent")
-    parser.add_argument("--thinking", default="medium")
+    reasoning = parser.add_mutually_exclusive_group()
+    reasoning.add_argument("--thinking",
+                           help="Reasoning effort for supported native Harbor harnesses (default: medium)")
+    reasoning.add_argument("--gateway-capture", action="store_true",
+                           help="Capture model request windows using OpenEnv's harness settings")
     parser.add_argument("--batch", required=True)
     parser.add_argument("--concurrent", type=int, default=1)
     parser.add_argument("--attempts", type=int, default=1)
@@ -660,8 +664,6 @@ def main():
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
     parser.add_argument("--bundle", type=Path, help="Local copy of the handoff bundle")
     parser.add_argument("--training-dir", type=Path, help="Trial-bound captures produced by the OpenEnv collector")
-    parser.add_argument("--gateway-capture", action="store_true",
-                        help="Run Harbor via the OpenEnv proxy and save actual model request windows")
     parser.add_argument("--capture-host", default="172.17.0.1",
                         help="Docker-reachable local IPv4 address on which the capture gateway listens")
     mode = parser.add_mutually_exclusive_group()
@@ -671,6 +673,8 @@ def main():
     parser.add_argument("--mark-interrupted", action="store_true",
                         help="With --export-job, mark a confirmed stopped batch that still says running")
     args = parser.parse_args()
+    if not args.gateway_capture and args.thinking is None:
+        args.thinking = "medium"
     if args.mark_interrupted and not args.export_job:
         parser.error("--mark-interrupted requires --export-job")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.batch):
