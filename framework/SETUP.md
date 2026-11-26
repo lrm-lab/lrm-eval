@@ -127,3 +127,7 @@ python -B report.py ../harbor-runs/demo-gateway --check-gateway-capture --format
 输出的 `episodes.jsonl` 用同一 `trial_id` 关联 `result.json`、可用 ATIF `trajectory.json` 和 `model-gateway.json`。网关文件存有模型请求窗口、工具定义、响应、采样参数和分支标记。真实工具往返通过匹配模型调用 ID 与后续请求中的工具返回来验证。选择适合存放完整请求内容的输出目录。
 
 该模式使用 OpenEnv 的协议及 harness 配置，支持 `--task`、`--all`、`--attempts`、`--concurrent`。可用 `--pause-after` 在连续出现同类故障时暂停派发。原生 Harbor 批次的 `--resume`、Agent 和 verifier 环境覆盖及绑定文件参数仍在原入口使用。网关评测产物标记为 `purpose=eval`。在线训练使用 OpenEnv 训练采集、vLLM 的实际 token 和 logprob，再由 TRL 消费经过验证的 mask。 [OpenEnv Harbor 采集](https://github.com/openenv/OpenEnv/blob/main/docs/source/environments/harbor.md#the-intercept)
+
+网关评测逐题更新共享结果和批次报告。每题的 `failure` 记录模型请求失败的类别与可用的 HTTP 状态码。上游请求出错后仍获得模型响应并完成评分时，报告在 `warnings` 里保留请求故障，并保留有效评分。DeepSWE 评分器没有收到补丁时，报告附带 `missing_model_patch`，评分沿用题目的原始规则。
+
+收到 SIGINT 或 SIGTERM 时，网关入口补发已有回执并将批次标为 `interrupted`。执行机意外退出后，在原执行机上用 `--export-job` 补发结果。确认批次已停止，且共享状态仍为 `running` 时，沿用原 `--batch`、`--output`、`--agent`、`--model` 和 `--source-host`，同时加 `--mark-interrupted`。
