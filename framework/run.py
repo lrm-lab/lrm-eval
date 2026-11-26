@@ -2,6 +2,7 @@
 """Run a configured benchmark and publish one record per trial."""
 import argparse
 from collections import Counter
+from contextlib import nullcontext
 from datetime import datetime
 import fcntl
 import json
@@ -27,6 +28,7 @@ from training_capture import load_training_capture
 
 SHARED = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG = Path(__file__).resolve().with_name("harbor.toml")
+GATEWAY_LOCK = ".tianxi-gateway-run.lock"
 
 
 def read_json(path):
@@ -68,23 +70,32 @@ def publish_vlmevalkit_trajectory(trial, result, model):
     atomic_write(trial / "trajectory.json", (json.dumps(trajectory, ensure_ascii=False) + "\n").encode())
 
 
-def publish(job, output, metadata, training_dir=None, source_host=None, *, resumed=False, reward_key="reward"):
+def publish(job, output, metadata, training_dir=None, source_host=None, *, resumed=False, reward_key="reward",
+            receipts=None, skip_published=False, status_updates=None, mark_interrupted=False):
     """Publish only finished trial receipts; preserve valid zero rewards."""
     publication_dir(output)
     with (output / ".publish.lock").open("a") as lock:
         fcntl.flock(lock, fcntl.LOCK_EX)
         batch_status = output / "batch-status.json"
-        if batch_status.is_file():
+        progress = read_json(batch_status) if batch_status.is_file() else None
+        if progress is not None:
             origin = {"host": source_host or batch_guard.source_host(), "path": str(job.resolve())}
-            if read_json(batch_status).get("source") != origin:
+            if progress.get("source") != origin:
                 raise ValueError(f"Batch already belongs to a different job: {output}")
         manifest = output / "manifest.json"
         if manifest.exists() and read_json(manifest) != metadata:
             raise ValueError(f"Batch already belongs to a different job: {output}")
-        atomic_write(manifest, (json.dumps(metadata, ensure_ascii=False, indent=2) + "\n").encode())
+        if not manifest.exists():
+            atomic_write(manifest, (json.dumps(metadata, ensure_ascii=False, indent=2) + "\n").encode())
+        index = output / "episodes.jsonl"
+        merged = {}
+        if index.is_file():
+            for line in index.read_text().splitlines():
+                previous = json.loads(line)
+                merged[previous["trial_id"]] = previous
         records = []
         identifiers = set()
-        for receipt in sorted(job.glob("*/result.json")):
+        for receipt in sorted(job.glob("*/result.json") if receipts is None else receipts):
             try:
                 result = read_json(receipt)
             except (FileNotFoundError, json.JSONDecodeError):
@@ -96,6 +107,8 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
             if str(UUID(trial_id)) != trial_id or trial_id in identifiers:
                 raise ValueError(f"Invalid or duplicate Harbor trial ID: {trial_id}")
             identifiers.add(trial_id)
+            if skip_published and trial_id in merged:
+                continue
             relative = Path("trials") / trial_id
             trial = output / relative
             publication_dir(trial)
@@ -106,10 +119,20 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
             if type(reward) not in (int, float) or not math.isfinite(reward):
                 reward = None
             error = batch_guard.primary_exception(result).get("exception_type")
-            diagnostic = batch_guard.failure_details(result, receipt.parent, source_host)
+            model_gateway = batch_guard.model_gateway_details(receipt.parent, source_host)
+            diagnostic = batch_guard.failure_details(result, receipt.parent, source_host, model_gateway=model_gateway)
+            if diagnostic and not error:
+                error = "ModelGatewayError"
+            warnings = []
+            if model_gateway and model_gateway != diagnostic:
+                warnings.append(model_gateway)
+            if reward == 0 and metadata["dataset"] == "deepswe-1.1":
+                if missing_patch := batch_guard.missing_model_patch(receipt.parent, source_host):
+                    warnings.append(missing_patch)
             status = (
                 "cancelled" if diagnostic and diagnostic["kind"] == "cancelled" else
-                "timeout" if error and "timeout" in error.lower() else
+                "timeout" if error and ("timeout" in error.lower() or
+                                        diagnostic and diagnostic["kind"] == "model_gateway_timeout") else
                 "failed" if error else "scored" if reward is not None else "unscored"
             )
             if error:
@@ -146,6 +169,7 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                 "agent_info": agent_info, "verifier_rewards": rewards, "reward_key": receipt_reward_key,
                 "exception_type": error,
                 "failure": diagnostic,
+                **({"warnings": warnings} if warnings else {}),
                 "started_at": result.get("started_at"), "finished_at": result["finished_at"],
             }
             usage = episode_usage(result)
@@ -193,20 +217,16 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                 "model_route": metadata["model"], "checkpoint": checkpoint,
                 "status": status, "reward": reward, "verifier_rewards": rewards, "exception_type": error,
                 "failure": diagnostic,
+                **({"warnings": warnings} if warnings else {}),
                 "usage": usage,
                 "result": str(relative / "result.json"), "trajectory": trace_path,
                 "trajectory_status": trace_status, "training_trace": training_path, "training_status": training_status,
                 "gateway_trace": gateway_path, "gateway_status": gateway_status,
             })
-        index = output / "episodes.jsonl"
         if records or (resumed and index.is_file()):
-            merged = {}
-            if index.is_file():
-                for line in index.read_text().splitlines():
-                    previous = json.loads(line)
-                    if resumed and previous.get("exception_type") == "CancelledError" and previous["trial_id"] not in identifiers:
-                        continue
-                    merged[previous["trial_id"]] = previous
+            if resumed:
+                merged = {key: row for key, row in merged.items()
+                          if row.get("exception_type") != "CancelledError" or key in identifiers}
             for row in records:
                 previous = merged.get(row["trial_id"])
                 if previous and previous["training_trace"] and not row["training_trace"]:
@@ -215,7 +235,16 @@ def publish(job, output, metadata, training_dir=None, source_host=None, *, resum
                 merged[row["trial_id"]] = row
             atomic_write(index, "".join(json.dumps(row, ensure_ascii=False, allow_nan=False) + "\n"
                                          for row in merged.values()).encode())
-        return len(records)
+        if progress is not None and status_updates is not None:
+            progress.update(status_updates, completed=len(merged))
+            if mark_interrupted and progress.get("status") == "running":
+                progress["status"] = "interrupted"
+            if (status_updates.get("status") == "finished" and type(progress.get("planned")) is int
+                    and len(merged) < progress["planned"]):
+                progress["status"] = "failed"
+            atomic_write(batch_status, (json.dumps(progress, ensure_ascii=False, indent=2) + "\n").encode())
+            write_batch_report(output)
+        return len(merged) if skip_published else len(records)
 
 
 def episode_usage(result):
@@ -492,7 +521,7 @@ def execute_gateway(args, dataset, output, metadata):
     if not args.base_url:
         raise ValueError("Set OPENAI_BASE_URL or --base-url for gateway capture")
     key = os.getenv("OPENAI_API_KEY")
-    job = args.work / "jobs" / args.batch
+    job = (args.work / "jobs" / args.batch).resolve()
     if output.exists() or job.exists():
         raise ValueError("Gateway batch already exists. Use a fresh name")
     task_attempts = Counter()
@@ -505,29 +534,48 @@ def execute_gateway(args, dataset, output, metadata):
     output.mkdir()
     output.chmod(0o755)
     state = {"status": "running", "source": {"host": args.source_host, "path": str(job)},
-             "planned": planned, "task_attempts": task_attempts}
+             "completed": 0, "planned": planned, "task_attempts": task_attempts}
 
     def write_document(path, document):
         atomic_write(path, (json.dumps(document, ensure_ascii=False, allow_nan=False) + "\n").encode())
 
-    status = output / "batch-status.json"
-    write_document(status, state)
+    def publish_trial(receipt):
+        try:
+            publish(job, output, metadata, source_host=args.source_host, reward_key=args.reward_key,
+                    receipts=(receipt,), status_updates={})
+        except OSError:
+            print("Could not publish completed trial. It will be retried at batch exit.", file=sys.stderr)
+        result = read_json(receipt)
+        model_gateway = batch_guard.model_gateway_details(receipt.parent, args.source_host)
+        failure = batch_guard.failure_details(result, receipt.parent, args.source_host, model_gateway=model_gateway)
+        return failure["kind"] if failure else None
+
     counts = Counter()
-    try:
-        counts = gateway_capture.run_capture(args, tasks, job, args.base_url, model, key, write_document)
-    except KeyboardInterrupt:
-        state["status"] = "interrupted"
-        raise
-    finally:
-        count = publish(job, output, metadata, source_host=args.source_host, reward_key=args.reward_key)
-        success = count == planned and counts["captured"] == planned
-        if state["status"] == "running":
-            state["status"] = "paused" if counts["paused"] else "finished" if success else "failed"
-        state["completed"] = count
-        write_document(status, state)
-        write_batch_report(output)
+    exit_code = None
+    final = {}
+    with (job / GATEWAY_LOCK).open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        write_document(output / "batch-status.json", state)
+        publish(job, output, metadata, source_host=args.source_host, receipts=(), status_updates={})
+        try:
+            counts = gateway_capture.run_capture(args, tasks, job, args.base_url, model, key,
+                                                 write_document, publish_trial)
+        except KeyboardInterrupt as error:
+            exit_code = 143 if isinstance(error, gateway_capture.GatewayTerminated) else 130
+            final["status"] = "interrupted"
+        except Exception as error:
+            final["last_failure"] = type(error).__name__
+            raise
+        finally:
+            final.setdefault("status", "paused" if counts["paused"] else
+                             "finished" if counts["captured"] == planned else "failed")
+            if counts.get("last_failure"):
+                final["last_failure"] = counts["last_failure"]
+            count = publish(job, output, metadata, source_host=args.source_host, reward_key=args.reward_key,
+                            skip_published=True, status_updates=final)
     print(f"Published {count} trial(s) to {output}")
-    return batch_guard.PAUSED_EXIT if counts["paused"] else int(not success)
+    return exit_code or (batch_guard.PAUSED_EXIT if counts["paused"] else
+                         int(count != planned or counts["captured"] != planned))
 
 
 def publish_vlmevalkit_metrics(job, output):
@@ -622,9 +670,13 @@ def main():
     mode.add_argument("--plan", action="store_true")
     mode.add_argument("--export-job", type=Path, help="Import completed trial receipts from a local job")
     mode.add_argument("--resume", action="store_true", help="Continue a locked local Harbor batch")
+    parser.add_argument("--mark-interrupted", action="store_true",
+                        help="With --export-job, mark a confirmed stopped batch that still says running")
     args = parser.parse_args()
     if not args.gateway_capture and args.thinking is None:
         args.thinking = "medium"
+    if args.mark_interrupted and not args.export_job:
+        parser.error("--mark-interrupted requires --export-job")
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*", args.batch):
         parser.error("Invalid batch name")
     if args.concurrent < 1 or args.attempts < 1 or args.pause_after < 0:
@@ -666,8 +718,17 @@ def main():
         metadata["runner"] = runner
     output = args.output / args.batch
     if args.export_job:
-        count = publish(args.export_job.resolve(), output, metadata, args.training_dir, args.source_host,
-                        reward_key=args.reward_key)
+        job = args.export_job.resolve()
+        if args.mark_interrupted and not (output / "batch-status.json").is_file():
+            parser.error("--mark-interrupted requires an existing batch-status.json")
+        with (job / GATEWAY_LOCK).open("a") if args.mark_interrupted else nullcontext() as lock:
+            if lock is not None:
+                try:
+                    fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    parser.error("Gateway job is still running")
+            count = publish(job, output, metadata, args.training_dir, args.source_host,
+                            reward_key=args.reward_key, status_updates={}, mark_interrupted=args.mark_interrupted)
         if count == 0:
             parser.error("No finished trial receipts found")
         if runner == "vlmevalkit":
@@ -677,7 +738,8 @@ def main():
             planned = read_json(original_result).get("n_total_trials") if original_result.is_file() else None
         except (OSError, ValueError):
             planned = None
-        write_batch_report(output, planned=planned if not (output / "batch-status.json").is_file() else None)
+        if not (output / "batch-status.json").is_file():
+            write_batch_report(output, planned=planned)
         print(f"Published {count} trial(s) to {output}")
         return 0
 

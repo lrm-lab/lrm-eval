@@ -15,10 +15,25 @@ INTEGRITY_FILE = ".tianxi-harbor-integrity.json"
 PLUGIN = "batch_guard:DispatchGuard"
 PAUSED_EXIT = 75
 LOG_LIMIT = 96 * 1024
+MODEL_ERRORS_FILE = "model-gateway-errors.json"
+MODEL_ERROR_SUMMARIES = {
+    "model_gateway_timeout": "模型网关等待上游响应超时。",
+    "model_gateway_transport": "模型网关连接上游失败或连接中断。",
+    "model_gateway_http_error": "模型网关收到上游 HTTP 错误。",
+    "model_gateway_error": "模型网关记录到上游请求失败。",
+}
 
 # Only fixed summaries are exported. Raw log and exception text can contain
 # prompts, command lines, headers, and credentials.
 SIGNATURES = (
+    ("model_gateway_timeout", "模型请求等待响应超时。", (
+        "engine timed out", "before the model idle timeout", "idle timeout waiting for sse")),
+    ("model_gateway_transport", "模型响应流中断。", (
+        "stream disconnected before completion", "could not reach engine",
+        "server disconnected without sending a response")),
+    ("model_gateway_error", "模型请求返回服务端错误。", (
+        "reason=server_error", "unexpected status 502 bad gateway",
+        "unexpected status 503 service unavailable", "unexpected status 504 gateway timeout")),
     ("agent_tls", "模型请求的 TLS 证书校验失败。", (
         "certificate verify failed", "certificate has expired", "unable to verify the first certificate",
         "self signed certificate", "self-signed certificate", "err_tls_cert", "ip address mismatch")),
@@ -113,19 +128,69 @@ def primary_exception(result):
     )
 
 
-def failure_details(result, directory, host=None):
+def diagnostic(kind, summary, source, host=None, **details):
+    return {"kind": kind, "summary": summary,
+            "raw_log": {"host": host or source_host(), "path": str(source.absolute())},
+            **details}
+
+
+def model_gateway_details(directory, host=None):
+    path = directory / MODEL_ERRORS_FILE
+    if not path.is_file() or path.is_symlink():
+        return None
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    count = data.get("count")
+    responses = data.get("responses")
+    if type(count) is not int or count < 1 or type(responses) is not int or responses < 0:
+        return None
+    kind = data.get("kind")
+    if not isinstance(kind, str) or kind not in MODEL_ERROR_SUMMARIES:
+        kind = "model_gateway_error"
+    details = {"count": count, "responses": responses}
+    status = data.get("http_status")
+    if kind == "model_gateway_http_error" and type(status) is int and 400 <= status <= 599:
+        details["http_status"] = status
+    session_id = data.get("session_id")
+    if isinstance(session_id, str) and 1 <= len(session_id) <= 64 and session_id.isascii() and session_id.isalnum():
+        details["session_id"] = session_id
+    return diagnostic(kind, MODEL_ERROR_SUMMARIES[kind], path, host, **details)
+
+
+def missing_model_patch(directory, host=None):
+    path = directory / "verifier/test-stdout.txt"
+    if not path.is_file() or path.is_symlink() or not path.resolve().is_relative_to(directory.resolve()):
+        return None
+    try:
+        with path.open("rb") as stream:
+            for line in stream.read(LOG_LIMIT).splitlines():
+                if line.startswith(b"[verifier] no model.patch submitted"):
+                    return diagnostic("missing_model_patch", "评分器未收到补丁，测试使用原始代码。", path, host)
+    except OSError:
+        pass
+    return None
+
+
+def failure_details(result, directory, host=None, *, model_gateway=None):
     info = primary_exception(result)
     error = info.get("exception_type")
     if not error:
-        return None
+        return model_gateway if model_gateway and model_gateway["responses"] == 0 else None
     paths = [directory / item for item in (
-        "agent/opencode.txt", "agent/pi.txt", "agent/openclaw.txt", "agent/agent.log",
+        "agent/opencode.txt", "agent/pi.txt", "agent/openclaw.txt", "agent/codex.txt",
+        "agent/claude-code.txt", "agent/agent.log",
         "agent/agent-setup.log", "agent/setup.log", "trial.log",
         "verifier/test-stdout.txt", "verifier/test-stderr.txt", "verifier/test-output.txt",
     )]
     paths = [path for path in paths
              if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(directory.resolve())]
     normalized = error.lower()
+    if model_gateway and "agent" in normalized and "setup" not in normalized and "install" not in normalized:
+        return model_gateway
     kind, summary = "run_error", "运行异常，请查看执行机原始日志。"
     source = paths[0] if paths else directory / "result.json"
     if "cancel" in normalized:
@@ -157,10 +222,7 @@ def failure_details(result, directory, host=None):
                 kind, summary, _ = match
                 source = path
                 break
-    return {
-        "kind": kind, "summary": summary,
-        "raw_log": {"host": host or source_host(), "path": str(source.absolute())},
-    }
+    return diagnostic(kind, summary, source, host)
 
 
 class DispatchPaused(RuntimeError):

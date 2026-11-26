@@ -17,6 +17,7 @@ class Case:
     reference: str
     scenario: str
     environment: str = "offline-files"
+    provenance: dict | None = None
 
 
 def csv_text(columns, rows):

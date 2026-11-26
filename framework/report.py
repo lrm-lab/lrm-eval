@@ -136,9 +136,13 @@ def summarize(rows, meta, progress, *, planned=None, attempts_per_task=None,
     return {
         "schema_version": 1, "batch": meta.get("batch"), **dimensions,
         "batch_status": progress.get("status"), "totals": totals, "tasks": tasks, "usage": usage,
+        **({"last_failure": progress["last_failure"]} if progress.get("last_failure") else {}),
         "failure_kinds": dict(sorted(Counter(
             (r.get("failure") or {}).get("kind") or r["exception_type"]
             for r in rows if r.get("exception_type")
+        ).items())),
+        "warning_kinds": dict(sorted(Counter(
+            warning["kind"] for row in rows for warning in row.get("warnings") or []
         ).items())),
         "trajectories": dict(sorted(Counter(r.get("trajectory_status", "unknown") for r in rows).items())),
         "training": dict(sorted(Counter(r.get("training_status", "not_captured") for r in rows).items())),
@@ -291,6 +295,14 @@ def as_markdown(report):
         cells("批次", report["totals"]),
         *(cells(name, summary) for name, summary in report["tasks"].items()),
     ]
+    if report.get("batch_status"):
+        lines.extend(["", f"批次状态 {label(report['batch_status'])}"])
+    if report.get("last_failure"):
+        lines.extend(["", f"最近一次故障 {label(report['last_failure'])}"])
+    for key, title in (("failure_kinds", "运行故障"), ("warning_kinds", "诊断提示")):
+        if kinds := report.get(key):
+            details = "、".join(f"{label(kind)} {count}" for kind, count in kinds.items())
+            lines.extend(["", f"{title} {details}"])
     if official := report["official"]:
         lines.extend(["", f"官方结果 **{label(official['metric'])}** {official['score']}，官方分母 "
                            f"{official['denominator']}。来源 {label(official['source'])}"])

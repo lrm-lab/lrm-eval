@@ -86,15 +86,15 @@ python3 -B report.py ../harbor-runs/demo-smoke --check-smoke --format markdown
 
 ## 合成和训练
 
-`synthesize.py` 注册了 5 种生成方法。默认每种生成 20 道训练候选题和 6 道留出题，共 130 题。已有的 `tianxi-synth-v1` 题包包含前两种方法的 52 道题。每种方法用固定种子生成输入、标准产物和典型错误，训练和留出使用独立模板或关系模式。题目遵循 [任务格式](framework/DATASET_FORMAT.md)。
+`synthesize.py` 注册了 5 种生成方法。默认每种生成 20 道训练候选题和 6 道留出题，共 130 题。已有的 `tianxi-synth-v1` 题包包含前两种方法的 52 道题。每种方法可单独调用，多次传入 `--method` 会将选中的方法写入同一题包。离线生成使用固定种子，训练和留出分别采样。题目遵循 [任务格式](framework/DATASET_FORMAT.md)。
 
 | `--method` | 生成方式 |
 | --- | --- |
 | `order-reconcile` | 订单对账，覆盖事件过滤、去重和金额结算。 |
 | `log-rollup` | 离线日志汇总，覆盖分片、去重、时区和分位数。 |
-| `toolspace` | 从预定义工具依赖图生成可调用的离线 CLI 和记录，沿分支采样任务路径，再运行 CLI 回放参考解。评分检查输出的记录路径和结果。上游 ToolSpace 还包含真实轨迹挖图和状态化环境聚类。 [ToolSpace 项目](https://toolspace-agent.github.io/) |
-| `self-questioning` | 从记录提出候选问题，用全表复算，只保留完整条件唯一且单项条件有干扰项的问题。默认使用程序化提问。 |
-| `multi-hop` | 从三份事实分片连续做定向关系连接，训练题 2–4 跳，留出题 4–6 跳，评分检查每一跳的证据路径。 |
+| `toolspace` | 从工具图生成查找、交接、版本过期后恢复三类任务。目录记录保存在独立的 Docker 服务，CLI 逐条查询。评分同时核对证据路径、服务端提交状态和回执。 [ToolSpace 项目](https://toolspace-agent.github.io/) |
+| `self-questioning` | 从材料提出唯一匹配、最早、最晚三类问题。每个条件都要影响结果，独立 SQL 验算从公开题面重算答案。支持离线出题、模型出题和已接受提案回放。 |
+| `multi-hop` | 生成直链、双条件汇合和时点归属三类证据题。每对只改一个事实，正确联系人随之变化。评分核对答案和来源记录，独立验算逐条移除关键事实检查必要性。 |
 
 ```bash
 # 不依赖外部模型的可复现版本
@@ -119,15 +119,43 @@ python3 -B synthesize.py check ../datasets/my-reasoning-v1
 
 `[synthesis.options.<方法名>]` 可给生成函数传关键字参数。`[synthesis.options.toolspace]` 的 `graph_file` 可指向自定义 JSON，以 `train` 和 `holdout` 为顶层键。每个 split 下按 `工具名 -> {关系名: 下一个工具名}` 定义有向无环图，第一个工具为入口，末端工具用空对象表示。可采样的末端至少经过三条边，且从入口只有一条路径。路径参数可用绝对路径或相对于命令运行目录的路径。
 
+团队可复制随仓库提供的 `framework/harbor.toml`，在已有表内添加注册项。例如，给 ToolSpace 的新工具图注册名称 `warehouse-handoff`，在 `synthesis.methods`、`synthesis.writers`、`synthesis.checkers` 和 `synthesis.auditors` 中分别沿用 `toolspace` 的对应函数，再在 `[synthesis.options.warehouse-handoff]` 设置 `graph_file`。用 `--config team.toml --method warehouse-handoff` 可单独生成，验题时也传入同一份配置。全新方法可以放在自己的可导入模块里；返回标准 `Case` 的文件题仅需在 `synthesis.methods` 添加一个名称和函数入口。
+
+分别试一种方法时，可在 `framework/` 运行下面的命令。训练和留出各生成 6 道，覆盖三种图结构及其配对版本。相同方法、配置和种子单独生成或混合生成会得到相同的离线题目。
+
+```bash
+python3 -B synthesize.py generate graph-pilot --method multi-hop --seed 42 \
+  --train-per-method 6 --holdout-per-method 6
+python3 -B synthesize.py check ../datasets/graph-pilot
+```
+
+自提问默认自带材料。自己的 `materials_file` 使用 JSON 对象，`train` 和 `holdout` 对应文档数组，每行有唯一 `id`、`owner`、`team`、`topic`、`stage` 和整数时间序号 `ordinal`。可将某类错例转成 `focus = "earliest"` 或 `"latest"`。配置模型出题时，在自有配置文件中加入以下条目，模型基于材料给出条件和证据 ID，框架检查证据、唯一性及每个条件的必要性，并由校验过的条件生成题面。最多重新提案两次。此选项独立于生成背景介绍的 `--teacher`。
+
+```toml
+[synthesis.options.self-questioning.proposer]
+base_url = "https://your-model-service.example/v1"
+model = "your-model"
+api_key_env = "QUESTION_PROPOSER_KEY"
+```
+
+已接受的结构化提案写入题包根目录的 `synthesis.json`。使用相同方法名称、材料、种子和题目数量，设置 `[synthesis.options.self-questioning]` 的 `replay_manifest` 指向此文件，可以离线重放。自定义方法若要生成配对题，可在 `[synthesis.seed_groups]` 将方法名配置为 `2`。同一 split 中相邻两题共享随机种子，生成函数用 `index` 决定每题的变化。训练和留出的种子独立。
+
 训练候选用同一模型和同一 OpenCode 版本每题采样 8 次，随后运行 `synthesize.py select <episodes.jsonl>`。混合成败组进入 GRPO，0/8 交给强教师实跑，8/8 用于回归，异常或不完整样本进入复核。首轮门槛可用 `--min-grpo` 配置。
 
-GRPO 使用 OpenEnv 采集模型实际返回的 token ID、logprob 与 loss mask，Harbor 给奖励，TRL 更新模型并同步权重到 vLLM。先跑 `report.py --check-training-captures <batch>` 核对评分和 trial 级采集文件，再核查一次真实更新和 vLLM 的权重版本。将 OpenEnv 和 vLLM 启动后，运行：
+GRPO 使用 OpenEnv 采集实际 token ID、logprob 和 loss mask。项目默认固定 TRL 提交 `b2686bf5c300756cdf878b84f83a48f794e2fb94`，按 verifier 原始正确性训练。先在独立的 TRL checkout 安装该版本及其 Harbor 示例依赖，启动 OpenEnv 和 vLLM。用 `report.py --check-training-captures <batch>` 可核查已有 trial 的训练采集。
 
 ```bash
 python3 -B train.py --trl-root "$TRL_ROOT" --plan -- \
   --server "$OPENENV_URL" --vllm-url "$VLLM_URL" --model "$TRAIN_MODEL" \
-  --split "$TRAIN_SPLIT" --harness opencode --num-generations 8 --max-steps 1
+  --split "$TRAIN_SPLIT" --harness opencode --num-generations 8 \
+  --max-staleness 0 --save-steps 1 --max-steps 2 --output-dir "$EXPERT_OUTPUT"
 ```
+
+去掉 `--plan` 启动训练。做全权重 GRPO 的一步发布验收时，设 `--max-steps 1` 并在 `--` 前加 `--verify-grpo-update <logprob容差>`。训练返回后，入口通过同一 vLLM 实例和 harness 再跑一次所选 split 中的题，将真实采样的 token 在 CPU 上分别用初始权重和最终权重复算。验收要求所有受训 token 与最终权重吻合，至少一个足以区分初始权重，并将结果写入 `grpo-policy-*.json`。用小模型并按相同权重跨引擎的误差校准容差。
+
+`$EXPERT_OUTPUT` 使用绝对路径。要分别训练工具和推理专家，用各自的训练 split 和输出目录各跑一次，再将通过本域留出题评测的权重填入下面的 `opd.experts`。按领域保留底座、对应专家和最终学生在相同留出题上的通过率。两步用于检查训练和发布链路，正式训练可调整步数。
+
+每次运行的 `grpo-rewards-*.jsonl` 按 TRL rollout ID 和组 ID 记录到达评分回调的样本，包括 verifier 原始分、工具调用次数、效率分、实际加分及最终训练分。未评分的样本保留空值。需要沿用上游满分后的效率加分时，在 `--` 前传 `--tool-efficiency-weight 0.3`。使用其他兼容 TRL 版本时，在同一位置传 `--trl-revision <完整提交 SHA>`。启动器检查 checkout 并从中加载 TRL。[固定版本的 Harbor 示例](https://github.com/huggingface/trl/blob/b2686bf5c300756cdf878b84f83a48f794e2fb94/examples/async_grpo_harbor/async_grpo_harbor.py)
 
 SFT 需要源 trial、工具调用到结果的配对关系和对应的实际模型请求。发生上下文压缩时按请求窗口分段，记录目标起始位置。训练入口、采集协议及分段思路见以下来源。[TRL Harbor 示例](https://github.com/huggingface/trl/tree/main/examples/async_grpo_harbor) · [OpenEnv Harbor](https://github.com/openenv/OpenEnv/blob/main/docs/source/environments/harbor.md) · [Roller 计分和轨迹产物](https://github.com/Valen-Team/Roller/blob/main/README_zh-CN.md)
 
@@ -190,10 +218,12 @@ python3 -B train.py --config ../datasets/my-reasoning-v1/harbor.toml \
 
 python3 -B train.py --config ../datasets/my-reasoning-v1/harbor.toml \
   --backend opd -- --dataset my-reasoning-v1-train --opd-config ./opd.toml \
-  --student /models/student --output ../training-runs/opd-smoke --steps 2
+  --student /models/student --output ../training-runs/opd-smoke --steps 2 --verify-update
 ```
 
 默认后端使用单设备 Transformers 学生训练器和本地 Hugging Face 专家。专家需与学生使用相同的 token ID 映射和输出词表。远端 vLLM 专家可配置 `scorer = "training_opd_models:VLLMExpert"`，并提供 `url`（含 `/v1`）、`model`、`tokenizer` 和可选的 `api_key_env`。每步默认按专家轮转采样，每位被选中的专家各贡献一条轨迹。`--rollouts-per-step` 可改变批量大小。输出目录保存 `routing.json`、学生 checkpoint 及每步的 `opd.json`，记录该步的采样 checkpoint、任务、专家、奖励和 token 数。
+
+两步验收可加 `--verify-update`。第 2 轮起，内置优化器在同一设备额外加载上一版学生，检查至少一个参数确实变化，并用两版权重在每条真实采样轨迹上重算相同、未屏蔽 token 的 logprob。当前版的所有误差必须在 `[opd.student].logprob_tolerance` 内，每条轨迹至少一个 token 的旧版误差必须超过该容差。同一权重跨引擎的数值误差可先用第 1 轮校准。两版都能解释采样时验收会报告证据不足。每步 `opd.json` 保存本轮请求的模型 ID、OpenEnv trial 和 session、按轨迹计算的误差，以及通过验收时对比的 checkpoint 和变化参数名。普通训练可以省略此选项以节省显存。
 
 训练环境需有 PyTorch、Transformers、支持 `purpose="train"` 和 `to_training_trace` 的 OpenEnv Harbor，以及启用 processed logprobs 的 vLLM。默认 publisher 每步重启一次 vLLM 并使用新的模型 ID，适合小规模验收。OpenEnv 必须能访问 publisher 提供的 URL，可通过 `[opd.vllm]` 的 `host`、`port` 和 `url` 调整。`hermes` 是示例解析器，实际配置需匹配学生模型。 [vLLM 服务参数](https://docs.vllm.ai/en/stable/cli/serve/)
 
